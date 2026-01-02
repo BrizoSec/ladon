@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "ladon-clients"
+version = "0.1.0"
+description = "LADON client libraries for service-to-service communication"
+authors = ["Your Team <team@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+httpx = "^0.24.0"
+grpcio = "^1.56.0"
+protobuf = "^4.23.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

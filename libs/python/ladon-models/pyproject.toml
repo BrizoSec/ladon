@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "ladon-models"
+version = "0.1.0"
+description = "LADON shared data models"
+authors = ["Your Team <team@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.0.0"
+pydantic-settings = "^2.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
