@@ -229,6 +229,10 @@ class NormalizedActivity(BaseModel):
         """
         Extract all potential IOC values from this activity event.
 
+        Uses quick-access fields that are pre-populated by populate_quick_access_fields()
+        for optimal performance. This avoids redundant attribute lookups and duplicate
+        creation when processing high volumes of events.
+
         Returns a dictionary mapping IOC types to lists of values that
         can be checked against the IOC database.
         """
@@ -241,61 +245,52 @@ class NormalizedActivity(BaseModel):
             "process": [],
         }
 
-        # IPs
+        # IPs - Use quick-access fields only
         if self.src_ip:
             ioc_values["ip"].append(self.src_ip)
         if self.dst_ip:
             ioc_values["ip"].append(self.dst_ip)
-        if self.network:
-            if self.network.src_ip:
-                ioc_values["ip"].append(self.network.src_ip)
-            if self.network.dst_ip:
-                ioc_values["ip"].append(self.network.dst_ip)
 
-        # Domains
+        # Domains - Use quick-access field + DNS answers (which aren't in quick-access)
         if self.domain:
             ioc_values["domain"].append(self.domain)
-        if self.network and self.network.domain:
-            ioc_values["domain"].append(self.network.domain)
-        if self.dns and self.dns.query:
-            ioc_values["domain"].append(self.dns.query)
+        if self.dns and self.dns.answers:
             ioc_values["domain"].extend(self.dns.answers)
 
-        # URLs
+        # URLs - Use quick-access field only
         if self.url:
             ioc_values["url"].append(self.url)
-        if self.network and self.network.url:
-            ioc_values["url"].append(self.network.url)
 
-        # Hashes
+        # Hashes - Need to check ALL hash fields from file object, not just quick-access
+        # (file_hash quick-access only stores highest priority hash, but we need all for IOC matching)
         if self.file_hash:
             ioc_values["hash"].append(self.file_hash)
         if self.file:
+            # Extract all available hash values (MD5, SHA1, SHA256, etc.)
             for hash_val in [
                 self.file.file_hash,
                 self.file.file_hash_md5,
                 self.file.file_hash_sha1,
                 self.file.file_hash_sha256,
             ]:
-                if hash_val:
+                if hash_val and hash_val not in ioc_values["hash"]:
                     ioc_values["hash"].append(hash_val)
 
-        # Emails
+        # Emails - No quick-access field, so check nested email fields
         if self.email:
             if self.email.sender:
                 ioc_values["email"].append(self.email.sender)
             if self.email.recipient:
                 ioc_values["email"].append(self.email.recipient)
-            ioc_values["email"].extend(self.email.recipients)
+            if self.email.recipients:
+                ioc_values["email"].extend(self.email.recipients)
 
-        # Process names
+        # Process names - Use quick-access field only
         if self.process_name:
             ioc_values["process"].append(self.process_name)
-        if self.process and self.process.process_name:
-            ioc_values["process"].append(self.process.process_name)
 
-        # Remove duplicates and empty values
-        return {k: list(set(filter(None, v))) for k, v in ioc_values.items()}
+        # Filter out None/empty values (no deduplication needed - each value checked once)
+        return {k: [x for x in v if x] for k, v in ioc_values.items()}
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
