@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel
 
+from .clients.storage_client import MockStorageClient, StorageServiceClient
 from .collection_service import CollectionService
 from .config import CollectionConfig, PubSubConfig
 
@@ -36,8 +37,22 @@ async def lifespan(app: FastAPI):
     # Initialize storage client if URL is provided
     storage_client = None
     if config.storage_service_url:
-        # TODO: Initialize storage client
-        logger.info(f"Storage service URL: {config.storage_service_url}")
+        logger.info(f"Connecting to Storage Service at {config.storage_service_url}")
+        storage_client = StorageServiceClient(
+            base_url=config.storage_service_url,
+            timeout=30
+        )
+
+        # Verify connection
+        is_healthy = await storage_client.health_check()
+        if is_healthy:
+            logger.info("Storage Service connection verified")
+        else:
+            logger.warning("Storage Service health check failed - watermarks will not persist")
+    else:
+        # Development mode - use mock storage client
+        logger.info("No storage service URL provided - using mock storage client")
+        storage_client = MockStorageClient()
 
     # Create and initialize service
     collection_service = CollectionService(config, storage_client)
@@ -54,6 +69,11 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Collection Service")
     if collection_service:
         await collection_service.stop()
+
+    # Close storage client
+    if storage_client:
+        await storage_client.close()
+
     logger.info("Collection Service stopped")
 
 
