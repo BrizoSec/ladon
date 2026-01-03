@@ -1,7 +1,7 @@
 """Storage Service HTTP client for watermark management."""
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import aiohttp
@@ -9,31 +9,131 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 
+class CircuitBreaker:
+    """Simple circuit breaker for Storage Service requests.
+
+    Based on ladon-common circuit breaker pattern from CLAUDE.md.
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        timeout_seconds: int = 60,
+        half_open_attempts: int = 3,
+    ):
+        """Initialize circuit breaker.
+
+        Args:
+            failure_threshold: Number of failures before opening circuit
+            timeout_seconds: Seconds to wait before attempting half-open
+            half_open_attempts: Attempts in half-open state before closing
+        """
+        self.failure_threshold = failure_threshold
+        self.timeout_seconds = timeout_seconds
+        self.half_open_attempts = half_open_attempts
+        self.failure_count = 0
+        self.last_failure_time: Optional[datetime] = None
+        self.state = "closed"  # closed, open, half_open
+
+    async def call(self, func):
+        """Execute async function with circuit breaker protection."""
+        if self.state == "open":
+            # Check if timeout has passed
+            if self.last_failure_time:
+                elapsed = (datetime.now(timezone.utc) - self.last_failure_time).total_seconds()
+                if elapsed >= self.timeout_seconds:
+                    self.state = "half_open"
+                    logger.info("Circuit breaker entering half-open state")
+                else:
+                    raise RuntimeError(
+                        f"Circuit breaker is OPEN - Storage Service unavailable "
+                        f"(retry in {self.timeout_seconds - elapsed:.0f}s)"
+                    )
+
+        try:
+            result = await func()
+
+            # Success - reset or close circuit
+            if self.state == "half_open":
+                self.state = "closed"
+                self.failure_count = 0
+                logger.info("Circuit breaker closed - Storage Service recovered")
+
+            return result
+
+        except Exception as e:
+            self.failure_count += 1
+            self.last_failure_time = datetime.now(timezone.utc)
+
+            if self.failure_count >= self.failure_threshold:
+                self.state = "open"
+                logger.error(
+                    "Circuit breaker OPENED - Storage Service unavailable",
+                    extra={
+                        "failure_count": self.failure_count,
+                        "error_type": type(e).__name__,
+                    },
+                )
+
+            raise
+
+
 class StorageServiceClient:
     """HTTP client for Storage Service.
 
     Used by Collection Service to manage watermarks for incremental collection.
+    Implements circuit breaker pattern and connection pooling for reliability.
     """
 
-    def __init__(self, base_url: str, timeout: int = 30):
+    def __init__(
+        self,
+        base_url: str,
+        timeout: int = 30,
+        verify_ssl: bool = True,
+        environment: str = "production",
+        max_connections: int = 100,
+        max_connections_per_host: int = 30,
+    ):
         """Initialize storage client.
 
         Args:
             base_url: Storage Service URL (e.g., "http://storage-service:8000")
             timeout: Request timeout in seconds
+            verify_ssl: Verify SSL certificates
+            environment: Environment (production, staging, development)
+            max_connections: Total connection pool size
+            max_connections_per_host: Connections per host
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = aiohttp.ClientTimeout(total=timeout)
+        self.verify_ssl = verify_ssl
+        self.environment = environment
+        self.max_connections = max_connections
+        self.max_connections_per_host = max_connections_per_host
         self.session: Optional[aiohttp.ClientSession] = None
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=5, timeout_seconds=60
+        )
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create HTTP session.
+        """Get or create HTTP session with connection pooling.
 
         Returns:
             aiohttp ClientSession
         """
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession(timeout=self.timeout)
+            # Create TCP connector with connection pooling
+            connector = aiohttp.TCPConnector(
+                limit=self.max_connections,
+                limit_per_host=self.max_connections_per_host,
+                ssl=self.verify_ssl if self.verify_ssl else False,
+                ttl_dns_cache=300,  # Cache DNS for 5 minutes
+            )
+
+            self.session = aiohttp.ClientSession(
+                timeout=self.timeout,
+                connector=connector,
+            )
         return self.session
 
     async def close(self):
@@ -50,7 +150,8 @@ class StorageServiceClient:
         Returns:
             Watermark dictionary or None if not found
         """
-        try:
+
+        async def _fetch():
             session = await self._get_session()
             url = f"{self.base_url}/api/v1/watermarks/{source_id}"
 
@@ -63,16 +164,56 @@ class StorageServiceClient:
                     logger.debug(f"No watermark found for {source_id}")
                     return None
                 else:
+                    error_msg = f"Failed to get watermark: {response.status}"
                     logger.error(
-                        f"Failed to get watermark: {response.status}"
+                        error_msg,
+                        exc_info=True,
+                        extra={
+                            "source_id": source_id,
+                            "error_type": "http_error",
+                            "status_code": response.status,
+                        },
                     )
-                    return None
+                    # Raise exception to trigger circuit breaker
+                    raise aiohttp.ClientResponseError(
+                        request_info=response.request_info,
+                        history=(),
+                        status=response.status,
+                        message=error_msg,
+                    )
 
+        try:
+            return await self.circuit_breaker.call(lambda: _fetch())
         except aiohttp.ClientError as e:
-            logger.error(f"Storage service request failed: {e}")
+            logger.error(
+                "Storage service request failed",
+                exc_info=True,
+                extra={
+                    "source_id": source_id,
+                    "error_type": "client_error",
+                    "error": str(e),
+                },
+            )
+            return None
+        except RuntimeError as e:
+            # Circuit breaker open
+            logger.warning(
+                str(e),
+                extra={
+                    "source_id": source_id,
+                    "error_type": "circuit_breaker_open",
+                },
+            )
             return None
         except Exception as e:
-            logger.error(f"Unexpected error getting watermark: {e}")
+            logger.error(
+                "Unexpected error getting watermark",
+                exc_info=True,
+                extra={
+                    "source_id": source_id,
+                    "error_type": "unexpected_error",
+                },
+            )
             return None
 
     async def update_watermark(
@@ -86,14 +227,19 @@ class StorageServiceClient:
 
         Args:
             source_id: Data source identifier
-            timestamp: Latest timestamp collected
+            timestamp: Latest timestamp collected (must have tzinfo)
             status: Collection status (success, failed, running)
             error_message: Error message if status is failed
 
         Returns:
             True if update succeeded
         """
-        try:
+
+        # Ensure timestamp has timezone info
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+
+        async def _update():
             session = await self._get_session()
             url = f"{self.base_url}/api/v1/watermarks/{source_id}"
 
@@ -110,33 +256,112 @@ class StorageServiceClient:
                     logger.debug(f"Updated watermark for {source_id}")
                     return True
                 else:
+                    error_msg = f"Failed to update watermark: {response.status}"
                     logger.error(
-                        f"Failed to update watermark: {response.status}"
+                        error_msg,
+                        exc_info=True,
+                        extra={
+                            "source_id": source_id,
+                            "error_type": "http_error",
+                            "status_code": response.status,
+                        },
                     )
-                    return False
+                    # Raise exception to trigger circuit breaker
+                    raise aiohttp.ClientResponseError(
+                        request_info=response.request_info,
+                        history=(),
+                        status=response.status,
+                        message=error_msg,
+                    )
 
+        try:
+            return await self.circuit_breaker.call(lambda: _update())
         except aiohttp.ClientError as e:
-            logger.error(f"Storage service request failed: {e}")
+            logger.error(
+                "Storage service request failed",
+                exc_info=True,
+                extra={
+                    "source_id": source_id,
+                    "error_type": "client_error",
+                    "error": str(e),
+                },
+            )
+            return False
+        except RuntimeError as e:
+            # Circuit breaker open
+            logger.warning(
+                str(e),
+                extra={
+                    "source_id": source_id,
+                    "error_type": "circuit_breaker_open",
+                },
+            )
             return False
         except Exception as e:
-            logger.error(f"Unexpected error updating watermark: {e}")
+            logger.error(
+                "Unexpected error updating watermark",
+                exc_info=True,
+                extra={
+                    "source_id": source_id,
+                    "error_type": "unexpected_error",
+                },
+            )
             return False
 
     async def health_check(self) -> bool:
         """Check if Storage Service is healthy.
 
+        In production environment, raises RuntimeError if service is not healthy.
+        In non-production environments, returns False but allows service to continue.
+
         Returns:
             True if service is healthy
+
+        Raises:
+            RuntimeError: If service is unhealthy in production environment
         """
         try:
             session = await self._get_session()
             url = f"{self.base_url}/health"
 
             async with session.get(url) as response:
-                return response.status == 200
+                is_healthy = response.status == 200
 
+                if not is_healthy and self.environment == "production":
+                    error_msg = (
+                        f"Storage Service health check failed in production: "
+                        f"status={response.status}"
+                    )
+                    logger.error(
+                        error_msg,
+                        exc_info=True,
+                        extra={
+                            "error_type": "health_check_failed",
+                            "status_code": response.status,
+                            "environment": self.environment,
+                        },
+                    )
+                    raise RuntimeError(error_msg)
+
+                return is_healthy
+
+        except RuntimeError:
+            # Re-raise RuntimeError from production check
+            raise
         except Exception as e:
-            logger.error(f"Storage service health check failed: {e}")
+            error_msg = f"Storage service health check failed: {e}"
+            logger.error(
+                error_msg,
+                exc_info=True,
+                extra={
+                    "error_type": "health_check_exception",
+                    "environment": self.environment,
+                },
+            )
+
+            if self.environment == "production":
+                raise RuntimeError(error_msg) from e
+
             return False
 
 

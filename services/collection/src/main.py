@@ -40,15 +40,23 @@ async def lifespan(app: FastAPI):
         logger.info(f"Connecting to Storage Service at {config.storage_service_url}")
         storage_client = StorageServiceClient(
             base_url=config.storage_service_url,
-            timeout=30
+            timeout=30,
+            verify_ssl=True,
+            environment=config.environment,
+            max_connections=100,
+            max_connections_per_host=30,
         )
 
-        # Verify connection
-        is_healthy = await storage_client.health_check()
-        if is_healthy:
-            logger.info("Storage Service connection verified")
-        else:
-            logger.warning("Storage Service health check failed - watermarks will not persist")
+        # Verify connection (raises RuntimeError in production if unhealthy)
+        try:
+            is_healthy = await storage_client.health_check()
+            if is_healthy:
+                logger.info("Storage Service connection verified")
+            else:
+                logger.warning("Storage Service health check failed - watermarks will not persist")
+        except RuntimeError as e:
+            logger.error(f"Storage Service health check failed in production: {e}")
+            raise
     else:
         # Development mode - use mock storage client
         logger.info("No storage service URL provided - using mock storage client")
