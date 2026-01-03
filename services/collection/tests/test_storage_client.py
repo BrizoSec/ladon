@@ -322,6 +322,47 @@ class TestStorageServiceClient:
 
         await storage_client.close()
 
+    def test_invalid_connection_pool_per_host_exceeds_total(self):
+        """Test validation when max_connections_per_host > max_connections."""
+        with pytest.raises(ValueError, match="max_connections_per_host cannot exceed max_connections"):
+            StorageServiceClient(
+                base_url="http://test-storage:8000",
+                max_connections=10,
+                max_connections_per_host=20,
+            )
+
+    def test_invalid_connection_pool_zero_connections(self):
+        """Test validation when max_connections < 1."""
+        with pytest.raises(ValueError, match="max_connections must be positive"):
+            StorageServiceClient(
+                base_url="http://test-storage:8000",
+                max_connections=0,
+            )
+
+    def test_ssl_verification_warning(self, caplog):
+        """Test warning is logged when SSL verification is disabled."""
+        import logging
+        with caplog.at_level(logging.WARNING):
+            client = StorageServiceClient(
+                base_url="http://test-storage:8000",
+                verify_ssl=False,
+            )
+            assert "SSL verification is DISABLED" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_configurable_circuit_breaker(self):
+        """Test circuit breaker parameters are configurable."""
+        client = StorageServiceClient(
+            base_url="http://test-storage:8000",
+            circuit_breaker_threshold=3,
+            circuit_breaker_timeout=30,
+        )
+
+        assert client.circuit_breaker.failure_threshold == 3
+        assert client.circuit_breaker.timeout_seconds == 30
+
+        await client.close()
+
 
 class TestMockStorageClient:
     """Tests for Mock Storage Client."""

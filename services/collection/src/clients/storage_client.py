@@ -19,18 +19,15 @@ class CircuitBreaker:
         self,
         failure_threshold: int = 5,
         timeout_seconds: int = 60,
-        half_open_attempts: int = 3,
     ):
         """Initialize circuit breaker.
 
         Args:
             failure_threshold: Number of failures before opening circuit
             timeout_seconds: Seconds to wait before attempting half-open
-            half_open_attempts: Attempts in half-open state before closing
         """
         self.failure_threshold = failure_threshold
         self.timeout_seconds = timeout_seconds
-        self.half_open_attempts = half_open_attempts
         self.failure_count = 0
         self.last_failure_time: Optional[datetime] = None
         self.state = "closed"  # closed, open, half_open
@@ -43,6 +40,7 @@ class CircuitBreaker:
                 elapsed = (datetime.now(timezone.utc) - self.last_failure_time).total_seconds()
                 if elapsed >= self.timeout_seconds:
                     self.state = "half_open"
+                    self.failure_count = 0  # Reset count when entering half-open
                     logger.info("Circuit breaker entering half-open state")
                 else:
                     raise RuntimeError(
@@ -65,7 +63,8 @@ class CircuitBreaker:
             self.failure_count += 1
             self.last_failure_time = datetime.now(timezone.utc)
 
-            if self.failure_count >= self.failure_threshold:
+            # Open circuit if threshold reached and not already open
+            if self.failure_count >= self.failure_threshold and self.state != "open":
                 self.state = "open"
                 logger.error(
                     "Circuit breaker OPENED - Storage Service unavailable",
@@ -93,6 +92,8 @@ class StorageServiceClient:
         environment: str = "production",
         max_connections: int = 100,
         max_connections_per_host: int = 30,
+        circuit_breaker_threshold: int = 5,
+        circuit_breaker_timeout: int = 60,
     ):
         """Initialize storage client.
 
@@ -103,6 +104,8 @@ class StorageServiceClient:
             environment: Environment (production, staging, development)
             max_connections: Total connection pool size
             max_connections_per_host: Connections per host
+            circuit_breaker_threshold: Number of failures before opening circuit
+            circuit_breaker_timeout: Seconds to wait before attempting half-open
         """
         self.base_url = base_url.rstrip("/")
         self.timeout = aiohttp.ClientTimeout(total=timeout)
@@ -110,9 +113,21 @@ class StorageServiceClient:
         self.environment = environment
         self.max_connections = max_connections
         self.max_connections_per_host = max_connections_per_host
+
+        # Validate connection pool parameters
+        if max_connections < 1:
+            raise ValueError("max_connections must be positive")
+        if max_connections_per_host > max_connections:
+            raise ValueError("max_connections_per_host cannot exceed max_connections")
+
+        # Log warning if SSL verification is disabled
+        if not self.verify_ssl:
+            logger.warning("SSL verification is DISABLED - only use in development!")
+
         self.session: Optional[aiohttp.ClientSession] = None
         self.circuit_breaker = CircuitBreaker(
-            failure_threshold=5, timeout_seconds=60
+            failure_threshold=circuit_breaker_threshold,
+            timeout_seconds=circuit_breaker_timeout,
         )
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -314,6 +329,10 @@ class StorageServiceClient:
         In production environment, raises RuntimeError if service is not healthy.
         In non-production environments, returns False but allows service to continue.
 
+        Note: Health checks bypass the circuit breaker to allow service startup
+        verification. Circuit breaker state should not affect initial health checks,
+        as they're used to determine if the service should start at all.
+
         Returns:
             True if service is healthy
 
@@ -397,7 +416,7 @@ class MockStorageClient:
         """Update watermark in in-memory store."""
         watermark = {
             "source_id": source_id,
-            "last_run_timestamp": datetime.utcnow(),
+            "last_run_timestamp": datetime.now(timezone.utc),
             "status": status,
             "error_message": error_message,
         }
