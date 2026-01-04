@@ -11,7 +11,9 @@ from aioresponses import aioresponses
 src_path = Path(__file__).parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from clients.storage_client import CircuitBreaker, MockStorageClient, StorageServiceClient
+from ladon_common import CircuitBreaker
+
+from clients.storage_client import MockStorageClient, StorageServiceClient
 
 
 class TestCircuitBreaker:

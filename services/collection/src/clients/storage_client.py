@@ -1,80 +1,21 @@
 """Storage Service HTTP client for watermark management."""
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import aiohttp
+from ladon_common import CircuitBreaker
+
+from .storage_metrics import (
+    get_circuit_breaker_state_value,
+    storage_client_circuit_breaker_state,
+    storage_client_latency_seconds,
+    storage_client_requests_total,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class CircuitBreaker:
-    """Simple circuit breaker for Storage Service requests.
-
-    Based on ladon-common circuit breaker pattern from CLAUDE.md.
-    """
-
-    def __init__(
-        self,
-        failure_threshold: int = 5,
-        timeout_seconds: int = 60,
-    ):
-        """Initialize circuit breaker.
-
-        Args:
-            failure_threshold: Number of failures before opening circuit
-            timeout_seconds: Seconds to wait before attempting half-open
-        """
-        self.failure_threshold = failure_threshold
-        self.timeout_seconds = timeout_seconds
-        self.failure_count = 0
-        self.last_failure_time: Optional[datetime] = None
-        self.state = "closed"  # closed, open, half_open
-
-    async def call(self, func):
-        """Execute async function with circuit breaker protection."""
-        if self.state == "open":
-            # Check if timeout has passed
-            if self.last_failure_time:
-                elapsed = (datetime.now(timezone.utc) - self.last_failure_time).total_seconds()
-                if elapsed >= self.timeout_seconds:
-                    self.state = "half_open"
-                    self.failure_count = 0  # Reset count when entering half-open
-                    logger.info("Circuit breaker entering half-open state")
-                else:
-                    raise RuntimeError(
-                        f"Circuit breaker is OPEN - Storage Service unavailable "
-                        f"(retry in {self.timeout_seconds - elapsed:.0f}s)"
-                    )
-
-        try:
-            result = await func()
-
-            # Success - reset or close circuit
-            if self.state == "half_open":
-                self.state = "closed"
-                self.failure_count = 0
-                logger.info("Circuit breaker closed - Storage Service recovered")
-
-            return result
-
-        except Exception as e:
-            self.failure_count += 1
-            self.last_failure_time = datetime.now(timezone.utc)
-
-            # Open circuit if threshold reached and not already open
-            if self.failure_count >= self.failure_threshold and self.state != "open":
-                self.state = "open"
-                logger.error(
-                    "Circuit breaker OPENED - Storage Service unavailable",
-                    extra={
-                        "failure_count": self.failure_count,
-                        "error_type": type(e).__name__,
-                    },
-                )
-
-            raise
 
 
 class StorageServiceClient:
@@ -165,12 +106,17 @@ class StorageServiceClient:
         Returns:
             Watermark dictionary or None if not found
         """
+        start_time = time.time()
+        status_code = None
+        error_type = ""
 
         async def _fetch():
+            nonlocal status_code
             session = await self._get_session()
             url = f"{self.base_url}/api/v1/watermarks/{source_id}"
 
             async with session.get(url) as response:
+                status_code = response.status
                 if response.status == 200:
                     watermark = await response.json()
                     logger.debug(f"Retrieved watermark for {source_id}")
@@ -198,36 +144,76 @@ class StorageServiceClient:
                     )
 
         try:
-            return await self.circuit_breaker.call(lambda: _fetch())
+            result = await self.circuit_breaker.call(lambda: _fetch())
+            # Record metrics
+            storage_client_latency_seconds.labels(method="get_watermark").observe(
+                time.time() - start_time
+            )
+            storage_client_requests_total.labels(
+                method="get_watermark",
+                status=str(status_code) if status_code else "unknown",
+                error_type="",
+            ).inc()
+            storage_client_circuit_breaker_state.set(
+                get_circuit_breaker_state_value(self.circuit_breaker.state)
+            )
+            return result
         except aiohttp.ClientError as e:
+            error_type = "client_error"
             logger.error(
                 "Storage service request failed",
                 exc_info=True,
                 extra={
                     "source_id": source_id,
-                    "error_type": "client_error",
+                    "error_type": error_type,
                     "error": str(e),
                 },
+            )
+            storage_client_requests_total.labels(
+                method="get_watermark",
+                status=str(status_code) if status_code else "error",
+                error_type=error_type,
+            ).inc()
+            storage_client_circuit_breaker_state.set(
+                get_circuit_breaker_state_value(self.circuit_breaker.state)
             )
             return None
         except RuntimeError as e:
             # Circuit breaker open
+            error_type = "circuit_breaker_open"
             logger.warning(
                 str(e),
                 extra={
                     "source_id": source_id,
-                    "error_type": "circuit_breaker_open",
+                    "error_type": error_type,
                 },
+            )
+            storage_client_requests_total.labels(
+                method="get_watermark",
+                status="circuit_open",
+                error_type=error_type,
+            ).inc()
+            storage_client_circuit_breaker_state.set(
+                get_circuit_breaker_state_value(self.circuit_breaker.state)
             )
             return None
         except Exception as e:
+            error_type = "unexpected_error"
             logger.error(
                 "Unexpected error getting watermark",
                 exc_info=True,
                 extra={
                     "source_id": source_id,
-                    "error_type": "unexpected_error",
+                    "error_type": error_type,
                 },
+            )
+            storage_client_requests_total.labels(
+                method="get_watermark",
+                status="error",
+                error_type=error_type,
+            ).inc()
+            storage_client_circuit_breaker_state.set(
+                get_circuit_breaker_state_value(self.circuit_breaker.state)
             )
             return None
 
