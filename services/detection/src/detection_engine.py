@@ -1,9 +1,10 @@
 """Detection engine for correlating IOCs against activity events."""
 
 import ipaddress
+import json
 import logging
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set
+from datetime import datetime, timedelta, timezone
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import tldextract
@@ -16,6 +17,39 @@ except ImportError:
     from config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _dict_to_normalized_ioc(ioc_dict: dict) -> NormalizedIOC:
+    """Convert dict to NormalizedIOC.
+
+    Standalone helper function used by both DetectionEngine and IOCCache.
+
+    Args:
+        ioc_dict: IOC dictionary from cache
+
+    Returns:
+        NormalizedIOC instance
+    """
+    # Parse timestamps
+    first_seen = ioc_dict.get("first_seen")
+    if first_seen and isinstance(first_seen, str):
+        first_seen = datetime.fromisoformat(first_seen)
+
+    last_seen = ioc_dict.get("last_seen")
+    if last_seen and isinstance(last_seen, str):
+        last_seen = datetime.fromisoformat(last_seen)
+
+    return NormalizedIOC(
+        ioc_value=ioc_dict["ioc_value"],
+        ioc_type=ioc_dict["ioc_type"],
+        threat_type=ioc_dict["threat_type"],
+        confidence=ioc_dict["confidence"],
+        source=ioc_dict["source"],
+        first_seen=first_seen,
+        last_seen=last_seen,
+        tags=ioc_dict.get("tags", []),
+        metadata=ioc_dict.get("metadata", {}),
+    )
 
 
 class DetectionEngine:
@@ -31,6 +65,11 @@ class DetectionEngine:
         self.enable_subdomain_matching = settings.enable_subdomain_matching
         self.enable_cidr_matching = settings.enable_cidr_matching
         self.enable_url_domain_extraction = settings.enable_url_domain_extraction
+
+        # CIDR cache optimization
+        self._cidr_cache: List[Tuple[ipaddress.IPv4Network, NormalizedIOC]] = []
+        self._cidr_cache_last_refresh: Optional[datetime] = None
+        self._cidr_cache_ttl = timedelta(minutes=5)  # Refresh every 5 minutes
 
     async def correlate_event(self, event: NormalizedActivity) -> List[Detection]:
         """Correlate a single activity event against IOC cache.
@@ -78,7 +117,7 @@ class DetectionEngine:
 
     def _extract_ioc_candidates(
         self, event: NormalizedActivity
-    ) -> List[tuple[str, str]]:
+    ) -> List[Tuple[str, str]]:
         """Extract potential IOC values from activity event.
 
         Args:
@@ -129,6 +168,8 @@ class DetectionEngine:
     ) -> List[NormalizedIOC]:
         """Check if IOC exists in Redis cache.
 
+        Tracks cache hits and misses via Prometheus metrics.
+
         Args:
             ioc_value: IOC value to check
             ioc_type: IOC type
@@ -139,6 +180,14 @@ class DetectionEngine:
         """
         matched_iocs = []
 
+        # Import metrics here to avoid circular dependency
+        try:
+            from .metrics import ioc_cache_hits_total, ioc_cache_misses_total
+        except ImportError:
+            # Metrics not available, skip tracking
+            ioc_cache_hits_total = None
+            ioc_cache_misses_total = None
+
         # Exact match
         # Convert enum to string value if needed
         ioc_type_str = ioc_type.value if hasattr(ioc_type, 'value') else str(ioc_type)
@@ -146,20 +195,72 @@ class DetectionEngine:
         ioc_data = self.redis.get(cache_key)
 
         if ioc_data:
+            # Cache hit
+            if ioc_cache_hits_total:
+                ioc_cache_hits_total.inc()
             # Parse IOC from cache
-            import json
             ioc_dict = json.loads(ioc_data)
             matched_iocs.append(self._dict_to_ioc(ioc_dict))
+        else:
+            # Cache miss
+            if ioc_cache_misses_total:
+                ioc_cache_misses_total.inc()
 
         # CIDR matching for IPs
         if ioc_type == "ipv4" and self.enable_cidr_matching:
             cidr_matches = self._check_cidr_ranges(ioc_value)
+            if cidr_matches and ioc_cache_hits_total:
+                ioc_cache_hits_total.inc(len(cidr_matches))
             matched_iocs.extend(cidr_matches)
 
         return matched_iocs
 
+    def _refresh_cidr_cache(self) -> None:
+        """Refresh the in-memory CIDR cache from Redis.
+
+        This is an optimization to avoid scanning Redis for every IP check.
+        Cache is refreshed every 5 minutes.
+        """
+        now = datetime.now(timezone.utc)
+
+        # Check if cache needs refresh
+        if (
+            self._cidr_cache_last_refresh is None
+            or (now - self._cidr_cache_last_refresh) > self._cidr_cache_ttl
+        ):
+            logger.info("Refreshing CIDR cache from Redis")
+
+            new_cache = []
+            cidr_pattern = f"{settings.ioc_cache_key_prefix}:cidr:*"
+            cursor = 0
+
+            while True:
+                cursor, keys = self.redis.scan(cursor, match=cidr_pattern, count=100)
+
+                for key in keys:
+                    cidr_str = key.decode().split(":", 2)[2]
+
+                    try:
+                        network = ipaddress.ip_network(cidr_str)
+                        ioc_data = self.redis.get(key)
+                        if ioc_data:
+                            ioc_dict = json.loads(ioc_data)
+                            ioc = self._dict_to_ioc(ioc_dict)
+                            new_cache.append((network, ioc))
+                    except (ValueError, json.JSONDecodeError) as e:
+                        logger.warning(f"Invalid CIDR in cache: {cidr_str}: {e}")
+
+                if cursor == 0:
+                    break
+
+            self._cidr_cache = new_cache
+            self._cidr_cache_last_refresh = now
+            logger.info(f"CIDR cache refreshed: {len(self._cidr_cache)} ranges loaded")
+
     def _check_cidr_ranges(self, ip_address: str) -> List[NormalizedIOC]:
         """Check if IP matches any CIDR ranges in cache.
+
+        Uses in-memory cache refreshed every 5 minutes for performance.
 
         Args:
             ip_address: IP address to check
@@ -172,26 +273,13 @@ class DetectionEngine:
         try:
             ip = ipaddress.ip_address(ip_address)
 
-            # Get all CIDR IOCs from cache
-            # Note: In production, you'd want a more efficient data structure
-            # like an interval tree or redis geospatial index
-            cidr_pattern = f"{settings.ioc_cache_key_prefix}:cidr:*"
-            cidr_keys = self.redis.keys(cidr_pattern)
+            # Refresh cache if needed
+            self._refresh_cidr_cache()
 
-            for key in cidr_keys:
-                # Extract CIDR from key
-                cidr_str = key.decode().split(":", 2)[2]
-
-                try:
-                    network = ipaddress.ip_network(cidr_str)
-                    if ip in network:
-                        ioc_data = self.redis.get(key)
-                        if ioc_data:
-                            import json
-                            ioc_dict = json.loads(ioc_data)
-                            matched_iocs.append(self._dict_to_ioc(ioc_dict))
-                except ValueError:
-                    logger.warning(f"Invalid CIDR in cache: {cidr_str}")
+            # Check against cached CIDR ranges (O(n) but in-memory)
+            for network, ioc in self._cidr_cache:
+                if ip in network:
+                    matched_iocs.append(ioc)
 
         except ValueError:
             logger.warning(f"Invalid IP address: {ip_address}")
@@ -309,17 +397,23 @@ class DetectionEngine:
         This is a preliminary severity. The Scoring Service will
         calculate the final severity based on additional factors.
 
+        Thresholds are configurable via settings:
+        - CRITICAL: >= severity_critical_threshold (default 0.9)
+        - HIGH: >= severity_high_threshold (default 0.75)
+        - MEDIUM: >= severity_medium_threshold (default 0.5)
+        - LOW: < severity_medium_threshold
+
         Args:
             confidence: IOC confidence (0.0-1.0)
 
         Returns:
             Severity level
         """
-        if confidence >= 0.9:
+        if confidence >= settings.severity_critical_threshold:
             return "CRITICAL"
-        elif confidence >= 0.75:
+        elif confidence >= settings.severity_high_threshold:
             return "HIGH"
-        elif confidence >= 0.5:
+        elif confidence >= settings.severity_medium_threshold:
             return "MEDIUM"
         else:
             return "LOW"
@@ -352,26 +446,7 @@ class DetectionEngine:
         Returns:
             NormalizedIOC instance
         """
-        # Parse timestamps
-        first_seen = ioc_dict.get("first_seen")
-        if first_seen and isinstance(first_seen, str):
-            first_seen = datetime.fromisoformat(first_seen)
-
-        last_seen = ioc_dict.get("last_seen")
-        if last_seen and isinstance(last_seen, str):
-            last_seen = datetime.fromisoformat(last_seen)
-
-        return NormalizedIOC(
-            ioc_value=ioc_dict["ioc_value"],
-            ioc_type=ioc_dict["ioc_type"],
-            threat_type=ioc_dict["threat_type"],
-            confidence=ioc_dict["confidence"],
-            source=ioc_dict["source"],
-            first_seen=first_seen,
-            last_seen=last_seen,
-            tags=ioc_dict.get("tags", []),
-            metadata=ioc_dict.get("metadata", {}),
-        )
+        return _dict_to_normalized_ioc(ioc_dict)
 
 
 class IOCCache:
@@ -454,29 +529,8 @@ class IOCCache:
         if not ioc_data:
             return None
 
-        import json
         ioc_dict = json.loads(ioc_data)
-
-        # Parse timestamps
-        first_seen = ioc_dict.get("first_seen")
-        if first_seen:
-            first_seen = datetime.fromisoformat(first_seen)
-
-        last_seen = ioc_dict.get("last_seen")
-        if last_seen:
-            last_seen = datetime.fromisoformat(last_seen)
-
-        return NormalizedIOC(
-            ioc_value=ioc_dict["ioc_value"],
-            ioc_type=ioc_dict["ioc_type"],
-            threat_type=ioc_dict["threat_type"],
-            confidence=ioc_dict["confidence"],
-            source=ioc_dict["source"],
-            first_seen=first_seen,
-            last_seen=last_seen,
-            tags=ioc_dict.get("tags", []),
-            metadata=ioc_dict.get("metadata", {}),
-        )
+        return _dict_to_normalized_ioc(ioc_dict)
 
     def cache_stats(self) -> Dict[str, int]:
         """Get cache statistics.
@@ -484,16 +538,23 @@ class IOCCache:
         Returns:
             Dict with cache stats
         """
-        total_keys = 0
         by_type = {}
 
-        # Get all IOC keys
+        # Use SCAN instead of KEYS to avoid blocking Redis
         pattern = f"{settings.ioc_cache_key_prefix}:*"
-        keys = self.redis.keys(pattern)
-        total_keys = len(keys)
+        cursor = 0
+        all_keys = []
+
+        while True:
+            cursor, keys = self.redis.scan(cursor, match=pattern, count=100)
+            all_keys.extend(keys)
+            if cursor == 0:
+                break
+
+        total_keys = len(all_keys)
 
         # Count by type
-        for key in keys:
+        for key in all_keys:
             parts = key.decode().split(":", 2)
             if len(parts) >= 2:
                 ioc_type = parts[1]

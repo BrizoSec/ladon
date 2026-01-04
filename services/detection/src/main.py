@@ -130,11 +130,7 @@ async def detect(events: List[NormalizedActivity]):
         detections_created_total.inc(len(detections))
         detection_latency_seconds.observe(time.time() - start_time)
 
-        # Update cache hit/miss metrics
-        if detections:
-            ioc_cache_hits_total.inc(len(detections))
-        else:
-            ioc_cache_misses_total.inc(len(events))
+        # Note: Cache hit/miss metrics are tracked in _check_ioc_cache()
 
         logger.info(
             f"Correlated {len(events)} events, created {len(detections)} detections "

@@ -66,6 +66,14 @@ class MISPCollector:
         self.verify_ssl = verify_ssl
         self.session = None
 
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - ensures proper cleanup."""
+        await self.close()
+
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create HTTP session."""
         if self.session is None or self.session.closed:
@@ -305,7 +313,9 @@ class MISPCollector:
             else:
                 dt = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
             return dt.isoformat()
-        except Exception:
+        except (ValueError, OverflowError, TypeError) as e:
+            # Log the specific error for debugging
+            print(f"⚠️  Failed to parse timestamp {timestamp}: {e}")
             return None
 
 
@@ -335,10 +345,8 @@ async def main():
     print("MISP Collection Test")
     print("=" * 80)
 
-    # Create collector
-    collector = MISPCollector(misp_url, misp_api_key, verify_ssl)
-
-    try:
+    # Create collector with async context manager for proper cleanup
+    async with MISPCollector(misp_url, misp_api_key, verify_ssl) as collector:
         # Get recent events
         events = await collector.get_recent_events(days=7, limit=5)
 
@@ -407,9 +415,6 @@ async def main():
         print(f"   abuse.ch URLhaus:    Malicious URLs, online/offline status")
         print(f"   MISP:                Community sharing, structured events")
         print(f"\n   All sources provide complementary threat intelligence! 🎯")
-
-    finally:
-        await collector.close()
 
 
 if __name__ == "__main__":

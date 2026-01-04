@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     batch_size: int = int(os.getenv("DETECTION_BATCH_SIZE", "1000"))
     correlation_timeout_ms: int = int(os.getenv("CORRELATION_TIMEOUT_MS", "100"))
 
+    # Severity Thresholds (confidence to severity mapping)
+    severity_critical_threshold: float = float(os.getenv("SEVERITY_CRITICAL_THRESHOLD", "0.9"))
+    severity_high_threshold: float = float(os.getenv("SEVERITY_HIGH_THRESHOLD", "0.75"))
+    severity_medium_threshold: float = float(os.getenv("SEVERITY_MEDIUM_THRESHOLD", "0.5"))
+
     # Matching Configuration
     enable_subdomain_matching: bool = os.getenv("ENABLE_SUBDOMAIN_MATCHING", "true").lower() == "true"
     enable_cidr_matching: bool = os.getenv("ENABLE_CIDR_MATCHING", "true").lower() == "true"
