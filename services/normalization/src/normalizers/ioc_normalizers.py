@@ -77,10 +77,64 @@ class AbuseCHNormalizer(IOCNormalizer):
 
 
 class MISPNormalizer(IOCNormalizer):
-    """Normalizer for MISP IOCs."""
+    """Normalizer for MISP IOCs.
+
+    Maps MISP attribute types to LADON standard types.
+    """
+
+    # MISP type mapping to LADON types
+    TYPE_MAPPING = {
+        "ip-src": "ipv4",
+        "ip-dst": "ipv4",
+        "ip-src|port": "ipv4",
+        "ip-dst|port": "ipv4",
+        "domain": "domain",
+        "hostname": "domain",
+        "url": "url",
+        "uri": "url",
+        "md5": "hash_md5",
+        "sha1": "hash_sha1",
+        "sha256": "hash_sha256",
+        "sha512": "hash_sha512",
+        "ssdeep": "ssdeep",
+        "imphash": "imphash",
+        "email": "email",
+        "email-src": "email",
+        "email-dst": "email",
+        "filename": "file_name",
+        "filepath": "file_path",
+        "mutex": "mutex",
+        "vulnerability": "cve",
+        "ja3-fingerprint-md5": "ja3_fingerprint",
+    }
 
     def __init__(self, skip_invalid: bool = True):
         super().__init__(source_name="misp", skip_invalid=skip_invalid)
+
+    def normalize(self, raw_data: Dict[str, Any]) -> Optional[NormalizedIOC]:
+        """Normalize MISP IOC with type mapping.
+
+        Args:
+            raw_data: Raw IOC data from MISP
+
+        Returns:
+            Normalized IOC or None if invalid
+        """
+        # Map MISP type to LADON type
+        misp_type = raw_data.get("ioc_type", "")
+        mapped_type = self.TYPE_MAPPING.get(misp_type)
+
+        if not mapped_type:
+            if not self.skip_invalid:
+                logger.warning(f"Unknown MISP IOC type: {misp_type}")
+            return None
+
+        # Create a copy with mapped type
+        normalized_data = raw_data.copy()
+        normalized_data["ioc_type"] = mapped_type
+
+        # Call parent normalize with mapped type
+        return super().normalize(normalized_data)
 
 
 class GenericIOCNormalizer(IOCNormalizer):

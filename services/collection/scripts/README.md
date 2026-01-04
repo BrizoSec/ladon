@@ -1,211 +1,385 @@
-# AlienVault OTX Collection Testing Guide
+# Threat Intelligence Collection Testing Guide
 
-## Prerequisites
+This directory contains test scripts for validating threat intelligence collection from multiple sources.
 
-1. **Get AlienVault OTX API Key**
-   - Sign up at https://otx.alienvault.com/
-   - Go to **Settings** → **API Integration**
-   - Copy your API key
+## 📋 Available Test Scripts
 
-2. **Set Environment Variable**
-   ```bash
-   export ALIENVAULT_API_KEY="your_api_key_here"
-   ```
+| Script | Source | Status | IOCs Collected |
+|--------|--------|--------|----------------|
+| `test_alienvault.py` | AlienVault OTX | ✅ Tested | 43 IOCs |
+| `test_abusech.py` | abuse.ch (ThreatFox + URLhaus) | ✅ Tested | 20 IOCs |
+| `test_misp.py` | MISP | ⏳ Ready | - |
+| `test_normalization.py` | Normalization Pipeline | ✅ Tested | 100% success |
+| `test_storage.py` | Storage Pipeline | ✅ Tested | 100% success |
 
-## Quick Test (Recommended)
+---
 
-Run the test script to verify AlienVault collection:
+## 🔧 Quick Start
+
+### 1. Set Up Environment
 
 ```bash
 cd /Users/chemch/ladon/services/collection
 
-# Activate virtual environment
-source venv/bin/activate
+# Copy .env example
+cp .env.example .env
 
-# Run test script
+# Edit .env and add your API keys
+# nano .env
+```
+
+### 2. Activate Virtual Environment
+
+```bash
+source venv/bin/activate
+```
+
+### 3. Run Tests
+
+```bash
+# Test AlienVault OTX
+python scripts/test_alienvault.py
+
+# Test abuse.ch
+python scripts/test_abusech.py
+
+# Test MISP
+python scripts/test_misp.py
+
+# Test normalization
+python scripts/test_normalization.py
+
+# Test storage pipeline
+python scripts/test_storage.py
+```
+
+---
+
+## 🌐 Source 1: AlienVault OTX
+
+### Prerequisites
+
+1. **Get API Key**
+   - Sign up at https://otx.alienvault.com/
+   - Go to **Settings** → **API Integration**
+   - Copy your API key (also called "OTX Key")
+
+2. **Add to .env**
+   ```bash
+   ALIENVAULT_API_KEY=your_api_key_here
+   ```
+
+### Run Test
+
+```bash
 python scripts/test_alienvault.py
 ```
 
 ### Expected Output
 
 ```
-================================================================================
-AlienVault OTX Collection Test
-================================================================================
-
-🔍 Fetching pulses from AlienVault OTX...
-   URL: https://otx.alienvault.com/api/v1/pulses/subscribed
-   Params: {'limit': 5}
 ✅ Retrieved 5 pulses
-
 📊 Processing 5 pulses...
 
 --- Pulse 1: Malicious Domains Associated with APT28 ---
    Author: AlienVault
-   Created: 2024-12-15T10:30:00
-   Tags: apt28, malware, russia, espionage
    Indicators: 45
 
-   Sample IOCs:
-      • domain: malicious-domain.com
-        Threat: c2, Confidence: 0.80
-      • IPv4: 192.0.2.1
-        Threat: c2, Confidence: 0.80
-      • FileHash-SHA256: abc123...
-        Threat: malware, Confidence: 0.80
-
-================================================================================
 ✅ Collection Complete!
    Total Pulses: 5
-   Total IOCs: 234
-   Average IOCs per pulse: 46.8
-================================================================================
-
-💾 Sample data saved to: scripts/sample_alienvault_output.json
+   Total IOCs: 43
 ```
 
-## Full Integration Test
+### Features
+- **Coverage**: Broad threat intelligence from community pulses
+- **IOC Types**: IPs, domains, URLs, file hashes
+- **Metadata**: Threat classifications, MITRE ATT&CK tags
+- **Rate Limit**: 10 requests/min (free tier)
 
-To test the complete pipeline (Collection → Normalization):
+---
 
-### 1. Start Pub/Sub Emulator (Local Testing)
+## 🛡️ Source 2: abuse.ch
+
+### Prerequisites
+
+1. **Get Auth-Key** (FREE)
+   - Go to https://auth.abuse.ch/
+   - Sign up using X, LinkedIn, Google, or GitHub
+   - **Connect at least 2 authentication providers** (required!)
+   - Create an Auth-Key in the "Optional" section
+
+2. **Add to .env**
+   ```bash
+   ABUSECH_AUTH_KEY=your_auth_key_here
+   ```
+
+### Run Test
 
 ```bash
-# Install Pub/Sub emulator
-gcloud components install pubsub-emulator
-
-# Start emulator
-gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
+python scripts/test_abusech.py
 ```
 
-### 2. Set Environment Variables
+### Expected Output
 
-```bash
-export PUBSUB_EMULATOR_HOST=localhost:8085
-export PUBSUB_PROJECT_ID=ladon-dev
-export ALIENVAULT_API_KEY="your_api_key"
+```
+✅ Retrieved 10 IOCs from ThreatFox
+✅ Retrieved 10 URLs from URLhaus
+
+--- Sample ThreatFox IOCs ---
+   IOC #1: http://195.178.136.19/5
+   Malware: win.phorpiex
+   Confidence: 1.00
+
+--- Sample URLhaus IOCs ---
+   URL #1: http://195.178.136.19/5
+   Status: online
+   Confidence: 0.80
+
+✅ Collection Complete!
+   ThreatFox IOCs: 10
+   URLhaus IOCs:   10
+   Total IOCs:     20
 ```
 
-### 3. Run Collection Service
+### Features
+- **ThreatFox**: C2 servers, malware distribution IOCs
+- **URLhaus**: Malicious URLs with online/offline status
+- **MalwareBazaar**: Malware samples (hashes)
+- **No Cost**: Completely free with Auth-Key
+- **High Quality**: Vetted, high-confidence IOCs
+
+### Troubleshooting
+
+**Error: "unknown_auth_key"**
+- Make sure you connected **at least 2 authentication providers**
+- Regenerate your Auth-Key in the abuse.ch portal
+- Copy the key exactly (no extra spaces)
+
+---
+
+## 🔍 Source 3: MISP
+
+### Prerequisites
+
+1. **Get MISP Access**
+   - Option A: Use a public MISP instance (https://www.misp-project.org/communities/)
+   - Option B: Self-host MISP (https://www.misp-project.org/)
+   - Option C: Use CIRCL MISP (https://www.circl.lu/services/misp-malware-information-sharing-platform/)
+
+2. **Get API Key**
+   - Log into your MISP instance
+   - Go to **Global Actions** → **My Profile** → **Auth Keys**
+   - Create or copy your API key
+
+3. **Add to .env**
+   ```bash
+   MISP_URL=https://your-misp-instance.com
+   MISP_API_KEY=your_api_key_here
+   MISP_VERIFY_SSL=true  # Set to false for self-signed certs
+   ```
+
+### Run Test
 
 ```bash
-cd /Users/chemch/ladon/services/collection
+python scripts/test_misp.py
+```
+
+### Expected Output
+
+```
+✅ Retrieved 5 events from MISP
+✅ Retrieved 20 attributes from MISP
+
+--- Sample MISP Events ---
+   Event #1:
+      ID:            12345
+      Info:          APT28 Campaign Indicators
+      Threat Level:  1
+      Attributes:    25
+
+--- Sample MISP IOCs ---
+   IOC #1:
+      Type:          domain
+      Value:         malicious.com
+      Category:      Network activity
+      To IDS:        True
+      Confidence:    0.90
+
+✅ Collection Complete!
+   MISP Events:    5
+   MISP IOCs:      20
+```
+
+### Features
+- **Structured Events**: Events with multiple related IOCs
+- **Community Sharing**: Collaborative threat intelligence
+- **MISP Taxonomies**: Rich tagging and classification
+- **Custom Types**: Supports 100+ attribute types
+
+---
+
+## 🧪 Testing Normalization
+
+After collecting IOCs, test the normalization pipeline:
+
+```bash
+python scripts/test_normalization.py
+```
+
+This script:
+1. Loads sample AlienVault data
+2. Feeds it through the normalizer
+3. Shows before/after transformation
+4. Validates output format
+
+### Expected Output
+
+```
+📂 Loading sample AlienVault data...
+   Found 2 pulses in sample data
+
+🔧 Creating AlienVaultOTXNormalizer...
+   Extracted 11 raw IOCs from pulses
+
+📊 Statistics:
+   Total Raw IOCs:        11
+   ✅ Successfully Normalized: 11
+   ❌ Failed to Normalize:     0
+   📈 Success Rate:            100.0%
+```
+
+---
+
+## 💾 Testing Storage
+
+Test the complete pipeline from collection to storage:
+
+```bash
+python scripts/test_storage.py
+```
+
+This script:
+1. Loads normalized IOCs
+2. Sends them to Storage Service (or mock)
+3. Validates data format for BigQuery + Redis
+4. Shows pipeline statistics
+
+### Expected Output
+
+```
+📦 Creating MockStorageClient...
+📂 Loading sample AlienVault data...
+🔧 Normalizing IOCs...
+💾 Storing IOCs in Mock Storage...
+
+✅ Successfully stored 11 IOCs to mock storage
+
+📊 Pipeline Statistics:
+   Raw IOCs collected:        11
+   IOCs normalized:           11
+   IOCs stored:               11
+   Success rate:              100.0%
+```
+
+---
+
+## 📊 Comparison: All Sources
+
+| Feature | AlienVault OTX | abuse.ch | MISP |
+|---------|---------------|----------|------|
+| **Cost** | Free (with limits) | Free | Free (public instances) |
+| **Auth** | API Key | Auth-Key | API Key + Instance |
+| **Coverage** | Broad, community | Malware-focused | Customizable |
+| **Confidence** | Medium-High | High | Varies |
+| **Rate Limits** | 10 req/min | Moderate | Instance-dependent |
+| **Best For** | General threat intel | Malware C2s & URLs | Structured events |
+
+**Recommendation**: Use all three sources for comprehensive threat intelligence coverage! 🎯
+
+---
+
+## 🔄 Complete Pipeline Test
+
+To test the full end-to-end pipeline:
+
+```bash
+# 1. Collect from AlienVault
+python scripts/test_alienvault.py
+
+# 2. Collect from abuse.ch
+python scripts/test_abusech.py
+
+# 3. Test normalization
+python scripts/test_normalization.py
+
+# 4. Test storage
+python scripts/test_storage.py
+```
+
+This validates: **Collection → Normalization → Storage** ✅
+
+---
+
+## 📁 Sample Data Files
+
+After running tests, these files are created:
+
+- `sample_alienvault_output.json` - AlienVault OTX sample data
+- `sample_abusech_output.json` - abuse.ch sample data
+- `sample_misp_output.json` - MISP sample data
+
+These files can be used for:
+- Offline testing
+- Normalization development
+- Detection rule testing
+- Demo purposes
+
+---
+
+## 🚀 Next Steps
+
+After validating collection, normalization, and storage:
+
+1. **Detection Service** - Correlate IOCs against activity logs
+2. **Enrichment Service** - Add context from VirusTotal, PassiveTotal
+3. **Scoring Service** - Calculate threat severity scores
+4. **Notification Service** - ServiceNow integration
+5. **Production Deployment** - Scheduled collection with Cloud Scheduler
+
+---
+
+## 🐛 Common Issues
+
+### SSL Certificate Errors
+```
+SSLCertVerificationError: certificate verify failed
+```
+**Fix**: The test scripts already disable SSL verification for development. For production, ensure proper SSL certificates.
+
+### Missing Dependencies
+```
+ModuleNotFoundError: No module named 'aiohttp'
+```
+**Fix**: Make sure virtual environment is activated:
+```bash
 source venv/bin/activate
-python -m uvicorn src.main:app --reload --port 8001
+pip install -r requirements.txt
 ```
 
-### 4. Run Normalization Service
-
-```bash
-cd /Users/chemch/ladon/services/normalization
-source venv/bin/activate
-python -m uvicorn src.main:app --reload --port 8002
+### API Key Not Found
 ```
-
-### 5. Trigger Collection
-
-```bash
-# Trigger AlienVault collection via API
-curl -X POST http://localhost:8001/collect/alienvault_otx
+❌ Error: ALIENVAULT_API_KEY environment variable not set
 ```
+**Fix**: Add your API key to the `.env` file.
 
-## Test Data Structure
+---
 
-### Raw IOC Event (from Collection Service)
-```json
-{
-  "source": "alienvault",
-  "pulse_id": "abc123",
-  "pulse_name": "Malicious Domains Associated with APT28",
-  "ioc_value": "malicious-domain.com",
-  "ioc_type": "domain",
-  "tags": ["apt28", "malware", "russia"],
-  "threat_type": "c2",
-  "confidence": 0.80,
-  "created": "2024-12-15T10:30:00"
-}
-```
+## 📚 Resources
 
-### Normalized IOC (from Normalization Service)
-```json
-{
-  "ioc_value": "malicious-domain.com",
-  "ioc_type": "domain",
-  "threat_type": "c2",
-  "confidence": 0.80,
-  "source": "alienvault",
-  "first_seen": "2024-12-15T10:30:00+00:00",
-  "last_seen": "2024-12-15T10:30:00+00:00",
-  "tags": ["apt28", "malware", "russia"],
-  "metadata": {
-    "pulse_id": "abc123",
-    "pulse_name": "Malicious Domains Associated with APT28"
-  }
-}
-```
-
-## AlienVault OTX API Endpoints
-
-The collector uses these endpoints:
-
-| Endpoint | Purpose | Rate Limit |
-|----------|---------|------------|
-| `/api/v1/pulses/subscribed` | Get subscribed pulses | 10 req/min (free) |
-| `/api/v1/pulses/{pulse_id}` | Get specific pulse | 10 req/min (free) |
-| `/api/v1/indicators/{type}/{indicator}` | Get indicator details | 10 req/min (free) |
-
-**Note**: Free tier has rate limits. For production, consider AlienVault OTX Pro.
-
-## Troubleshooting
-
-### Error: "Invalid API Key"
-- Verify API key is correct
-- Check key hasn't expired
-- Ensure key has proper permissions
-
-### Error: "Rate limit exceeded"
-- Free tier: 10 requests/minute
-- Wait 60 seconds between requests
-- Consider upgrading to Pro tier
-
-### No IOCs Retrieved
-- Check if you're subscribed to any pulses
-- Go to https://otx.alienvault.com/ and subscribe to threat feeds
-- Default subscriptions may take 24 hours to activate
-
-### Connection Timeout
-- Check internet connectivity
-- Verify no firewall blocking otx.alienvault.com
-- Try: `curl https://otx.alienvault.com/api/v1/pulses/subscribed -H "X-OTX-API-KEY: your_key"`
-
-## Next Steps
-
-After testing AlienVault collection:
-
-1. **Add Other Feeds**: Test abuse.ch, MISP collectors
-2. **Test Normalization**: Verify IOCs are normalized correctly
-3. **Test Detection**: Correlate IOCs against activity logs
-4. **Production Deployment**: Set up scheduled collection (cron/Cloud Scheduler)
-
-## Production Configuration
-
-For production, configure in `config.yaml`:
-
-```yaml
-data_sources:
-  - id: alienvault_otx
-    type: threat_intel
-    enabled: true
-    api_key_secret: projects/PROJECT_ID/secrets/alienvault-api-key
-    collection_schedule: "0 */6 * * *"  # Every 6 hours
-    batch_size: 100
-    rate_limit:
-      requests_per_minute: 8  # Stay under 10/min limit
-      retry_backoff: exponential
-```
-
-## Resources
-
-- AlienVault OTX API Docs: https://otx.alienvault.com/api
-- LADON Collection Service: `/services/collection/README.md`
-- LADON Normalization Service: `/services/normalization/README.md`
+- **AlienVault OTX**: https://otx.alienvault.com/api
+- **abuse.ch**: https://abuse.ch/
+  - ThreatFox: https://threatfox.abuse.ch/api/
+  - URLhaus: https://urlhaus.abuse.ch/api/
+- **MISP**: https://www.misp-project.org/
+  - OpenAPI Docs: https://www.misp-project.org/openapi/
+- **LADON Documentation**: `/docs/`
