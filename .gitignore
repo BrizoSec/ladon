@@ -93,3 +93,4 @@ secrets/
 # Build artifacts
 *.whl
 *.tar.gz
+/services/collection/scripts/sample_abusech_output.json
