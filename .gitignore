@@ -94,3 +94,4 @@ secrets/
 *.whl
 *.tar.gz
 /services/collection/scripts/sample_abusech_output.json
+/services/collection/scripts/sample_alienvault_output.json
