@@ -22,17 +22,31 @@ from .ioc_normalizers import (
     MISPNormalizer,
     get_ioc_normalizer,
 )
+from .threat_normalizers import (
+    AbuseCHThreatNormalizer,
+    AlienVaultThreatNormalizer,
+    GenericThreatNormalizer,
+    MISPThreatNormalizer,
+    ThreatNormalizer,
+    get_threat_normalizer,
+)
 
 __all__ = [
     "BaseNormalizer",
     "IOCNormalizer",
     "ActivityNormalizer",
+    "ThreatNormalizer",
     "NormalizationMetrics",
     "AlienVaultOTXNormalizer",
     "AbuseCHNormalizer",
     "MISPNormalizer",
     "GenericIOCNormalizer",
     "get_ioc_normalizer",
+    "AlienVaultThreatNormalizer",
+    "AbuseCHThreatNormalizer",
+    "MISPThreatNormalizer",
+    "GenericThreatNormalizer",
+    "get_threat_normalizer",
     "DNSNormalizer",
     "ProxyNormalizer",
     "MDENormalizer",

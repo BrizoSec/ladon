@@ -39,6 +39,8 @@ else:
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from threat_extractors.alienvault_threat_extractor import AlienVaultThreatExtractor
+
 
 class AlienVaultOTXCollector:
     """Collector for AlienVault OTX threat intelligence feed."""
@@ -52,6 +54,7 @@ class AlienVaultOTXCollector:
         self.api_key = api_key
         self.base_url = "https://otx.alienvault.com/api/v1"
         self.session = None
+        self.threat_extractor = AlienVaultThreatExtractor()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create HTTP session."""
@@ -142,6 +145,31 @@ class AlienVaultOTXCollector:
 
         return iocs
 
+    def extract_threats_from_pulse(self, pulse: dict):
+        """Extract threat intelligence from a pulse.
+
+        Args:
+            pulse: AlienVault pulse dictionary
+
+        Returns:
+            List of threat dictionaries
+        """
+        threats = self.threat_extractor.extract_threats(pulse)
+        return threats
+
+    def extract_threat_ioc_associations(self, pulse: dict, threat_id: str):
+        """Extract threat-IOC associations from a pulse.
+
+        Args:
+            pulse: AlienVault pulse dictionary
+            threat_id: ID of the threat
+
+        Returns:
+            List of threat-IOC association dictionaries
+        """
+        associations = self.threat_extractor.extract_threat_ioc_associations(pulse, threat_id)
+        return associations
+
     def _map_threat_type(self, tags: list) -> str:
         """Map tags to threat type."""
         tag_str = " ".join(tags).lower()
@@ -212,9 +240,14 @@ async def main():
             print("\n⚠️  No pulses retrieved. Check your API key and network connection.")
             return
 
-        # Extract IOCs from pulses
+        # Extract IOCs and threats from pulses
         print(f"\n📊 Processing {len(pulses)} pulses...")
         total_iocs = 0
+        total_threats = 0
+        total_associations = 0
+
+        all_threats = []
+        all_associations = []
 
         for i, pulse in enumerate(pulses, 1):
             print(f"\n--- Pulse {i}: {pulse.get('name')} ---")
@@ -223,8 +256,35 @@ async def main():
             print(f"   Tags: {', '.join(pulse.get('tags', [])[:5])}")
             print(f"   Indicators: {len(pulse.get('indicators', []))}")
 
+            # Extract IOCs
             iocs = collector.extract_iocs_from_pulse(pulse)
             total_iocs += len(iocs)
+
+            # Extract threats
+            threats = collector.extract_threats_from_pulse(pulse)
+            total_threats += len(threats)
+            all_threats.extend(threats)
+
+            # Show threat information
+            if threats:
+                print(f"\n   🎯 Threats Extracted: {len(threats)}")
+                for threat in threats:
+                    print(f"      • {threat['name']} ({threat['threat_category']})")
+                    print(f"        Type: {threat['threat_type']}")
+                    print(f"        Confidence: {threat['confidence']:.2f}")
+                    if threat.get('techniques'):
+                        print(f"        MITRE Techniques: {len(threat['techniques'])}")
+                        # Show first 2 techniques
+                        for tech in threat['techniques'][:2]:
+                            print(f"          - {tech['technique_id']}: {tech['technique_name']}")
+                    if threat.get('tactics'):
+                        print(f"        Tactics: {', '.join(threat['tactics'][:3])}")
+
+                    # Extract associations for this threat
+                    associations = collector.extract_threat_ioc_associations(pulse, threat['threat_id'])
+                    total_associations += len(associations)
+                    all_associations.extend(associations)
+                    print(f"        Associated IOCs: {len(associations)}")
 
             # Show first 3 IOCs from this pulse
             print(f"\n   Sample IOCs:")
@@ -236,8 +296,21 @@ async def main():
         print(f"✅ Collection Complete!")
         print(f"   Total Pulses: {len(pulses)}")
         print(f"   Total IOCs: {total_iocs}")
+        print(f"   Total Threats: {total_threats}")
+        print(f"   Total Threat-IOC Associations: {total_associations}")
         print(f"   Average IOCs per pulse: {total_iocs / len(pulses):.1f}")
+        print(f"   Average Threats per pulse: {total_threats / len(pulses):.1f}")
         print("=" * 80)
+
+        # Show threat summary
+        if all_threats:
+            print(f"\n📊 Threat Summary:")
+            threat_categories = {}
+            for threat in all_threats:
+                category = threat['threat_category']
+                threat_categories[category] = threat_categories.get(category, 0) + 1
+            for category, count in threat_categories.items():
+                print(f"   • {category}: {count}")
 
         # Save sample output
         output_file = Path(__file__).parent / "sample_alienvault_output.json"
@@ -246,7 +319,11 @@ async def main():
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "pulses_count": len(pulses),
                 "total_iocs": total_iocs,
+                "total_threats": total_threats,
+                "total_associations": total_associations,
                 "sample_pulses": pulses[:2],  # Save first 2 pulses as sample
+                "sample_threats": all_threats[:3],  # Save first 3 threats
+                "sample_associations": all_associations[:5],  # Save first 5 associations
             }
             json.dump(sample_data, f, indent=2)
         print(f"\n💾 Sample data saved to: {output_file}")

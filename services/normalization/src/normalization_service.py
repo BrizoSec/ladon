@@ -10,6 +10,7 @@ from google.cloud import pubsub_v1
 from .config import NormalizationConfig
 from .normalizers.activity_normalizers import get_activity_normalizer
 from .normalizers.ioc_normalizers import get_ioc_normalizer
+from .normalizers.threat_normalizers import get_threat_normalizer
 from .subscribers.pubsub_subscriber import (
     MockPubSubSubscriber,
     PubSubSubscriber,
@@ -35,6 +36,7 @@ class NormalizationService:
         self.publisher = self._create_publisher()
         self.ioc_subscriber = self._create_subscriber("ioc")
         self.activity_subscriber = self._create_subscriber("activity")
+        self.threat_subscriber = self._create_subscriber("threat")
         self.running = False
         self.processing_tasks: List[asyncio.Task] = []
 
@@ -54,15 +56,19 @@ class NormalizationService:
         """Create Pub/Sub subscriber.
 
         Args:
-            event_type: Type of events (ioc or activity)
+            event_type: Type of events (ioc, activity, or threat)
 
         Returns:
             Subscriber instance
         """
         if event_type == "ioc":
             subscription_name = self.config.pubsub.ioc_subscription
-        else:
+        elif event_type == "activity":
             subscription_name = self.config.pubsub.activity_subscription
+        elif event_type == "threat":
+            subscription_name = self.config.pubsub.threat_subscription
+        else:
+            raise ValueError(f"Unknown event type: {event_type}")
 
         if self.config.environment == "development":
             logger.info(f"Using mock subscriber for {event_type} events")
@@ -264,6 +270,53 @@ class NormalizationService:
             )
             return False
 
+    def process_threat_message(self, message: Dict[str, Any]) -> bool:
+        """Process a single threat message.
+
+        Args:
+            message: Message dictionary
+
+        Returns:
+            True if processing succeeded
+        """
+        try:
+            raw_data = message["data"]
+            source = message["attributes"].get("source", "unknown")
+
+            # Get appropriate normalizer
+            normalizer = get_threat_normalizer(
+                source, skip_invalid=self.config.skip_invalid_iocs
+            )
+
+            # Normalize
+            normalized_threat = normalizer.normalize(raw_data)
+
+            if normalized_threat:
+                # Publish to normalized topic
+                self._publish_normalized(
+                    topic=self.config.pubsub.normalized_threat_events_topic,
+                    events=[normalized_threat],
+                    source=source,
+                )
+                return True
+            else:
+                # Normalization failed
+                self._publish_to_dlq(
+                    topic=self.config.pubsub.dlq_threat_events_topic,
+                    raw_event=raw_data,
+                    error="Normalization returned None",
+                )
+                return False
+
+        except Exception as e:
+            logger.error(f"Error processing threat message: {e}")
+            self._publish_to_dlq(
+                topic=self.config.pubsub.dlq_threat_events_topic,
+                raw_event=message.get("data", {}),
+                error=str(e),
+            )
+            return False
+
     async def process_ioc_batch(self) -> Dict[str, int]:
         """Process a batch of IOC messages.
 
@@ -296,6 +349,22 @@ class NormalizationService:
 
         return stats
 
+    async def process_threat_batch(self) -> Dict[str, int]:
+        """Process a batch of threat messages.
+
+        Returns:
+            Processing statistics
+        """
+        stats = self.threat_subscriber.process_messages(
+            handler=self.process_threat_message, auto_ack=True
+        )
+
+        logger.info(
+            f"Processed threat batch: {stats['success']} success, {stats['failed']} failed"
+        )
+
+        return stats
+
     async def start(self):
         """Start the normalization service.
 
@@ -307,8 +376,9 @@ class NormalizationService:
         # Start processing loops
         ioc_task = asyncio.create_task(self._ioc_processing_loop())
         activity_task = asyncio.create_task(self._activity_processing_loop())
+        threat_task = asyncio.create_task(self._threat_processing_loop())
 
-        self.processing_tasks = [ioc_task, activity_task]
+        self.processing_tasks = [ioc_task, activity_task, threat_task]
 
         logger.info("Normalization Service started")
 
@@ -344,6 +414,22 @@ class NormalizationService:
                 logger.error(f"Error in activity processing loop: {e}")
                 await asyncio.sleep(10)
 
+    async def _threat_processing_loop(self):
+        """Process threat messages in a loop."""
+        logger.info("Starting threat processing loop")
+
+        while self.running:
+            try:
+                stats = await self.process_threat_batch()
+
+                # If no messages, wait before polling again
+                if stats["total"] == 0:
+                    await asyncio.sleep(5)
+
+            except Exception as e:
+                logger.error(f"Error in threat processing loop: {e}")
+                await asyncio.sleep(10)
+
     async def stop(self):
         """Stop the normalization service."""
         logger.info("Stopping Normalization Service")
@@ -359,6 +445,7 @@ class NormalizationService:
         # Close subscribers
         self.ioc_subscriber.close()
         self.activity_subscriber.close()
+        self.threat_subscriber.close()
 
         # Close publisher
         if self.publisher:

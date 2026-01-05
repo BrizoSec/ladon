@@ -11,10 +11,10 @@ from typing import Dict, List, Optional
 
 from google.cloud import bigquery
 from google.cloud.bigquery import QueryJobConfig
-from ladon_models import Detection, NormalizedActivity, NormalizedIOC
+from ladon_models import Detection, NormalizedActivity, NormalizedIOC, Threat, ThreatIOCAssociation
 
 from ..config import BigQueryConfig
-from .base import ActivityRepository, DetectionRepository, IOCRepository
+from .base import ActivityRepository, DetectionRepository, IOCRepository, ThreatRepository
 
 logger = logging.getLogger(__name__)
 
@@ -602,3 +602,373 @@ class BigQueryDetectionRepository(DetectionRepository):
             first_seen=row["timestamp"],
             last_seen=row["timestamp"],
         )
+
+
+class BigQueryThreatRepository(ThreatRepository):
+    """BigQuery implementation of Threat repository."""
+
+    def __init__(self, config: BigQueryConfig):
+        """
+        Initialize BigQuery Threat repository.
+
+        Args:
+            config: BigQuery configuration
+        """
+        self.config = config
+        self.client = bigquery.Client(project=config.project_id)
+        self.threats_table = f"{config.project_id}.{config.dataset}.threats"
+        self.threat_ioc_associations_table = f"{config.project_id}.{config.dataset}.threat_ioc_associations"
+
+    async def store_threat(self, threat: Threat) -> bool:
+        """Store a single threat in BigQuery."""
+        try:
+            row = self._threat_to_row(threat)
+            errors = self.client.insert_rows_json(self.threats_table, [row])
+
+            if errors:
+                logger.error(f"Failed to insert threat: {errors}")
+                return False
+
+            logger.info(f"Stored threat: {threat.threat_id} ({threat.name})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error storing threat: {e}", exc_info=True)
+            return False
+
+    async def store_threats_batch(self, threats: List[Threat]) -> Dict[str, int]:
+        """Store multiple threats in a batch operation."""
+        try:
+            rows = [self._threat_to_row(threat) for threat in threats]
+
+            errors = self.client.insert_rows_json(self.threats_table, rows)
+
+            if errors:
+                logger.error(f"Batch insert had errors: {errors}")
+                success_count = len(threats) - len(errors)
+            else:
+                success_count = len(threats)
+
+            logger.info(
+                f"Stored threat batch: {success_count}/{len(threats)} successful"
+            )
+
+            return {"success": success_count, "failed": len(threats) - success_count}
+
+        except Exception as e:
+            logger.error(f"Error in batch threat insert: {e}", exc_info=True)
+            return {"success": 0, "failed": len(threats)}
+
+    async def get_threat(self, threat_id: str) -> Optional[Threat]:
+        """Retrieve a single threat by ID."""
+        query = f"""
+            SELECT *
+            FROM `{self.threats_table}`
+            WHERE threat_id = @threat_id
+            LIMIT 1
+        """
+
+        job_config = QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("threat_id", "STRING", threat_id),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = list(query_job.result())
+
+            if not results:
+                return None
+
+            return self._row_to_threat(dict(results[0]))
+
+        except Exception as e:
+            logger.error(f"Error retrieving threat {threat_id}: {e}", exc_info=True)
+            return None
+
+    async def search_threats(
+        self,
+        category: Optional[str] = None,
+        threat_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        min_confidence: Optional[float] = None,
+        limit: int = 100,
+    ) -> List[Threat]:
+        """Search for threats matching criteria."""
+        conditions = []
+        parameters = []
+
+        if category:
+            conditions.append("threat_category = @category")
+            parameters.append(
+                bigquery.ScalarQueryParameter("category", "STRING", category)
+            )
+
+        if threat_type:
+            conditions.append("threat_type = @threat_type")
+            parameters.append(
+                bigquery.ScalarQueryParameter("threat_type", "STRING", threat_type)
+            )
+
+        if is_active is not None:
+            conditions.append("is_active = @is_active")
+            parameters.append(
+                bigquery.ScalarQueryParameter("is_active", "BOOL", is_active)
+            )
+
+        if min_confidence is not None:
+            conditions.append("confidence >= @min_confidence")
+            parameters.append(
+                bigquery.ScalarQueryParameter("min_confidence", "FLOAT64", min_confidence)
+            )
+
+        where_clause = " AND ".join(conditions) if conditions else "TRUE"
+
+        query = f"""
+            SELECT *
+            FROM `{self.threats_table}`
+            WHERE {where_clause}
+            ORDER BY last_seen DESC
+            LIMIT @limit
+        """
+
+        parameters.append(bigquery.ScalarQueryParameter("limit", "INT64", limit))
+
+        job_config = QueryJobConfig(query_parameters=parameters)
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            threats = [self._row_to_threat(dict(row)) for row in results]
+            logger.info(f"Found {len(threats)} threats matching criteria")
+            return threats
+
+        except Exception as e:
+            logger.error(f"Error searching threats: {e}", exc_info=True)
+            return []
+
+    async def associate_ioc_with_threat(
+        self, association: ThreatIOCAssociation
+    ) -> bool:
+        """Associate an IOC with a threat."""
+        try:
+            row = self._association_to_row(association)
+            errors = self.client.insert_rows_json(
+                self.threat_ioc_associations_table, [row]
+            )
+
+            if errors:
+                logger.error(f"Failed to insert threat-IOC association: {errors}")
+                return False
+
+            logger.info(
+                f"Associated IOC {association.ioc_value} with threat {association.threat_id}"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Error creating threat-IOC association: {e}", exc_info=True)
+            return False
+
+    async def get_threats_for_ioc(
+        self, ioc_value: str, ioc_type: str
+    ) -> List[Threat]:
+        """Get all threats associated with an IOC."""
+        query = f"""
+            SELECT t.*
+            FROM `{self.threats_table}` t
+            JOIN `{self.threat_ioc_associations_table}` a
+                ON t.threat_id = a.threat_id
+            WHERE a.ioc_value = @ioc_value
+              AND a.ioc_type = @ioc_type
+            ORDER BY a.confidence DESC, t.last_seen DESC
+        """
+
+        job_config = QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("ioc_value", "STRING", ioc_value),
+                bigquery.ScalarQueryParameter("ioc_type", "STRING", ioc_type),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            threats = [self._row_to_threat(dict(row)) for row in results]
+            logger.info(
+                f"Found {len(threats)} threats associated with IOC {ioc_value}"
+            )
+            return threats
+
+        except Exception as e:
+            logger.error(f"Error retrieving threats for IOC: {e}", exc_info=True)
+            return []
+
+    async def get_iocs_for_threat(
+        self, threat_id: str, limit: int = 100
+    ) -> List[Dict]:
+        """Get all IOCs associated with a threat."""
+        query = f"""
+            SELECT
+                a.ioc_value,
+                a.ioc_type,
+                a.relationship_type,
+                a.confidence,
+                a.first_seen,
+                a.last_seen,
+                a.observation_count
+            FROM `{self.threat_ioc_associations_table}` a
+            WHERE a.threat_id = @threat_id
+            ORDER BY a.confidence DESC, a.last_seen DESC
+            LIMIT @limit
+        """
+
+        job_config = QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("threat_id", "STRING", threat_id),
+                bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            iocs = [dict(row) for row in results]
+            logger.info(f"Found {len(iocs)} IOCs associated with threat {threat_id}")
+            return iocs
+
+        except Exception as e:
+            logger.error(f"Error retrieving IOCs for threat: {e}", exc_info=True)
+            return []
+
+    async def update_threat(self, threat_id: str, updates: Dict) -> bool:
+        """Update a threat's fields."""
+        # BigQuery doesn't support direct updates well, so we use MERGE
+        set_clauses = []
+        parameters = [
+            bigquery.ScalarQueryParameter("threat_id", "STRING", threat_id)
+        ]
+
+        for key, value in updates.items():
+            if key in ["is_active", "severity", "confidence", "description"]:
+                set_clauses.append(f"{key} = @{key}")
+                # Determine type based on key
+                if key == "is_active":
+                    param_type = "BOOL"
+                elif key == "confidence":
+                    param_type = "FLOAT64"
+                else:
+                    param_type = "STRING"
+                parameters.append(
+                    bigquery.ScalarQueryParameter(key, param_type, value)
+                )
+
+        if not set_clauses:
+            logger.warning("No valid fields to update")
+            return False
+
+        # Add updated_at
+        set_clauses.append("updated_at = @updated_at")
+        parameters.append(
+            bigquery.ScalarQueryParameter(
+                "updated_at", "TIMESTAMP", datetime.utcnow()
+            )
+        )
+
+        query = f"""
+            UPDATE `{self.threats_table}`
+            SET {', '.join(set_clauses)}
+            WHERE threat_id = @threat_id
+        """
+
+        job_config = QueryJobConfig(query_parameters=parameters)
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            query_job.result()  # Wait for completion
+
+            logger.info(f"Updated threat {threat_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error updating threat: {e}", exc_info=True)
+            return False
+
+    def _threat_to_row(self, threat: Threat) -> Dict:
+        """Convert Threat model to BigQuery row format."""
+        return {
+            "threat_id": threat.threat_id,
+            "name": threat.name,
+            "aliases": threat.aliases,
+            "threat_category": threat.threat_category,
+            "threat_type": threat.threat_type.value if hasattr(threat.threat_type, "value") else threat.threat_type,
+            "description": threat.description,
+            "severity": threat.severity,
+            "confidence": threat.confidence,
+            "first_seen": threat.first_seen.isoformat(),
+            "last_seen": threat.last_seen.isoformat(),
+            "is_active": threat.is_active,
+            "techniques": json.dumps([tech.model_dump() for tech in threat.techniques]),
+            "tactics": threat.tactics or threat.get_all_tactics(),
+            "sources": threat.sources,
+            "reference_urls": threat.reference_urls,
+            "tags": threat.tags,
+            "metadata": json.dumps(threat.metadata),
+            "created_at": threat.created_at.isoformat(),
+            "updated_at": threat.updated_at.isoformat(),
+        }
+
+    def _row_to_threat(self, row: Dict) -> Threat:
+        """Convert BigQuery row to Threat model."""
+        from ladon_models import MITRETechnique
+
+        # Parse techniques from JSON
+        techniques = []
+        if row.get("techniques"):
+            tech_data = json.loads(row["techniques"]) if isinstance(row["techniques"], str) else row["techniques"]
+            techniques = [MITRETechnique(**tech) for tech in tech_data]
+
+        return Threat(
+            threat_id=row["threat_id"],
+            name=row["name"],
+            aliases=row.get("aliases", []),
+            threat_category=row["threat_category"],
+            threat_type=row["threat_type"],
+            description=row["description"],
+            severity=row.get("severity", "medium"),
+            confidence=row.get("confidence", 0.5),
+            first_seen=row["first_seen"],
+            last_seen=row["last_seen"],
+            is_active=row.get("is_active", True),
+            techniques=techniques,
+            tactics=row.get("tactics", []),
+            sources=row.get("sources", []),
+            reference_urls=row.get("reference_urls", []),
+            tags=row.get("tags", []),
+            metadata=json.loads(row.get("metadata", "{}")) if isinstance(row.get("metadata"), str) else row.get("metadata", {}),
+            created_at=row.get("created_at", datetime.utcnow()),
+            updated_at=row.get("updated_at", datetime.utcnow()),
+        )
+
+    def _association_to_row(self, association: ThreatIOCAssociation) -> Dict:
+        """Convert ThreatIOCAssociation model to BigQuery row format."""
+        return {
+            "threat_id": association.threat_id,
+            "ioc_value": association.ioc_value,
+            "ioc_type": association.ioc_type,
+            "relationship_type": association.relationship_type,
+            "confidence": association.confidence,
+            "first_seen": association.first_seen.isoformat(),
+            "last_seen": association.last_seen.isoformat(),
+            "observation_count": association.observation_count,
+            "sources": association.sources,
+            "reference_urls": association.reference_urls,
+            "notes": association.notes,
+            "tags": association.tags,
+            "created_at": association.created_at.isoformat(),
+            "updated_at": association.updated_at.isoformat(),
+        }

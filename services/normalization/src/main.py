@@ -71,17 +71,26 @@ def load_config() -> NormalizationConfig:
         raw_activity_events_topic=os.getenv(
             "PUBSUB_RAW_ACTIVITY_EVENTS_TOPIC", "raw-activity-events"
         ),
+        raw_threat_events_topic=os.getenv(
+            "PUBSUB_RAW_THREAT_EVENTS_TOPIC", "raw-threat-events"
+        ),
         normalized_ioc_events_topic=os.getenv(
             "PUBSUB_NORMALIZED_IOC_EVENTS_TOPIC", "normalized-ioc-events"
         ),
         normalized_activity_events_topic=os.getenv(
             "PUBSUB_NORMALIZED_ACTIVITY_EVENTS_TOPIC", "normalized-activity-events"
         ),
+        normalized_threat_events_topic=os.getenv(
+            "PUBSUB_NORMALIZED_THREAT_EVENTS_TOPIC", "normalized-threat-events"
+        ),
         ioc_subscription=os.getenv(
             "PUBSUB_IOC_SUBSCRIPTION", "normalization-ioc-sub"
         ),
         activity_subscription=os.getenv(
             "PUBSUB_ACTIVITY_SUBSCRIPTION", "normalization-activity-sub"
+        ),
+        threat_subscription=os.getenv(
+            "PUBSUB_THREAT_SUBSCRIPTION", "normalization-threat-sub"
         ),
     )
 
@@ -202,6 +211,30 @@ async def process_activity_batch():
         return ProcessingStatsResponse(**stats)
     except Exception as e:
         logger.error(f"Activity processing failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Processing failed: {str(e)}",
+        )
+
+
+@app.post("/process/threat", response_model=ProcessingStatsResponse)
+async def process_threat_batch():
+    """Trigger one-time processing of threat messages.
+
+    Returns:
+        Processing statistics
+    """
+    if not normalization_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Service not initialized",
+        )
+
+    try:
+        stats = await normalization_service.process_threat_batch()
+        return ProcessingStatsResponse(**stats)
+    except Exception as e:
+        logger.error(f"Threat processing failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Processing failed: {str(e)}",

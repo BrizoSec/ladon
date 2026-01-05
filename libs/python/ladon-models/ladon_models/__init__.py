@@ -55,6 +55,17 @@ from .detection import (
     SeverityScore,
 )
 
+# Threat Models
+from .threat import (
+    MalwareFamily,
+    MITRETechnique,
+    Threat,
+    ThreatActor,
+    ThreatCampaign,
+    ThreatIOCAssociation,
+    ThreatStatistics,
+)
+
 # Validators and Utilities
 from .validators import (
     DomainMatcher,
@@ -101,6 +112,14 @@ __all__ = [
     "EnrichmentData",
     "DetectionBatch",
     "DetectionStatistics",
+    # Threat Models
+    "Threat",
+    "ThreatActor",
+    "ThreatCampaign",
+    "MalwareFamily",
+    "MITRETechnique",
+    "ThreatIOCAssociation",
+    "ThreatStatistics",
     # Validators
     "IOCValidator",
     "DomainMatcher",

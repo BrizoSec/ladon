@@ -50,6 +50,8 @@ else:
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from threat_extractors.abusech_threat_extractor import AbuseCHThreatExtractor
+
 
 class AbuseCHCollector:
     """Collector for abuse.ch threat intelligence feeds."""
@@ -65,6 +67,7 @@ class AbuseCHCollector:
         self.urlhaus_url = "https://urlhaus-api.abuse.ch/v1/"
         self.malwarebazaar_url = "https://mb-api.abuse.ch/api/v1/"
         self.session = None
+        self.threat_extractor = AbuseCHThreatExtractor()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create HTTP session."""
@@ -221,6 +224,42 @@ class AbuseCHCollector:
 
         return iocs
 
+    def extract_threats(self, threatfox_iocs: list, urlhaus_iocs: list):
+        """Extract threat intelligence from abuse.ch IOC data.
+
+        Args:
+            threatfox_iocs: List of ThreatFox IOCs
+            urlhaus_iocs: List of URLhaus IOCs
+
+        Returns:
+            List of threat dictionaries
+        """
+        # Combine data for threat extraction
+        raw_data = {
+            "threatfox_iocs": threatfox_iocs,
+            "urlhaus_iocs": urlhaus_iocs,
+        }
+        threats = self.threat_extractor.extract_threats(raw_data)
+        return threats
+
+    def extract_threat_ioc_associations(self, threatfox_iocs: list, urlhaus_iocs: list, threat_id: str):
+        """Extract threat-IOC associations from abuse.ch data.
+
+        Args:
+            threatfox_iocs: List of ThreatFox IOCs
+            urlhaus_iocs: List of URLhaus IOCs
+            threat_id: ID of the threat
+
+        Returns:
+            List of threat-IOC association dictionaries
+        """
+        raw_data = {
+            "threatfox_iocs": threatfox_iocs,
+            "urlhaus_iocs": urlhaus_iocs,
+        }
+        associations = self.threat_extractor.extract_threat_ioc_associations(raw_data, threat_id)
+        return associations
+
     def _map_threatfox_type(self, ioc_type: str) -> str:
         """Map ThreatFox IOC type to standard type."""
         type_mapping = {
@@ -276,6 +315,7 @@ async def main():
     try:
         # Get ThreatFox IOCs
         threatfox_raw = await collector.get_threatfox_iocs(days=1, limit=10)
+        threatfox_iocs = []
 
         if threatfox_raw:
             print(f"\n📊 Processing {len(threatfox_raw)} ThreatFox IOCs...")
@@ -294,6 +334,7 @@ async def main():
 
         # Get URLhaus URLs
         urlhaus_raw = await collector.get_urlhaus_urls(limit=10)
+        urlhaus_iocs = []
 
         if urlhaus_raw:
             print(f"\n📊 Processing {len(urlhaus_raw)} URLhaus entries...")
@@ -309,17 +350,55 @@ async def main():
                 print(f"      Confidence:    {ioc['confidence']:.2f}")
                 print(f"      Tags:          {', '.join(ioc['tags'][:3])}")
 
+        # Extract threats from all IOCs
+        print(f"\n🎯 Extracting threat intelligence...")
+        threats = collector.extract_threats(threatfox_iocs, urlhaus_iocs)
+        all_associations = []
+
+        if threats:
+            print(f"\n--- Threats Extracted: {len(threats)} ---")
+            for i, threat in enumerate(threats, 1):
+                print(f"\n   Threat #{i}: {threat['name']} ({threat['threat_category']})")
+                print(f"      Type:         {threat['threat_type']}")
+                print(f"      Confidence:   {threat['confidence']:.2f}")
+                if threat.get('metadata'):
+                    metadata = threat['metadata']
+                    if metadata.get('malware_type'):
+                        print(f"      Malware Type: {metadata['malware_type']}")
+                    if metadata.get('platform'):
+                        print(f"      Platform:     {metadata['platform']}")
+                    if metadata.get('feed'):
+                        print(f"      Feed:         {metadata['feed']}")
+
+                # Extract associations for this threat
+                associations = collector.extract_threat_ioc_associations(
+                    threatfox_iocs, urlhaus_iocs, threat['threat_id']
+                )
+                all_associations.extend(associations)
+                print(f"      Associated IOCs: {len(associations)}")
+
         # Summary
         print(f"\n" + "=" * 80)
         print(f"✅ Collection Complete!")
 
-        total_iocs = len(threatfox_iocs) if threatfox_raw else 0
-        total_iocs += len(urlhaus_iocs) if urlhaus_raw else 0
+        total_iocs = len(threatfox_iocs) + len(urlhaus_iocs)
 
-        print(f"   ThreatFox IOCs: {len(threatfox_iocs) if threatfox_raw else 0}")
-        print(f"   URLhaus IOCs:   {len(urlhaus_iocs) if urlhaus_raw else 0}")
+        print(f"   ThreatFox IOCs: {len(threatfox_iocs)}")
+        print(f"   URLhaus IOCs:   {len(urlhaus_iocs)}")
         print(f"   Total IOCs:     {total_iocs}")
+        print(f"   Total Threats:  {len(threats)}")
+        print(f"   Total Threat-IOC Associations: {len(all_associations)}")
         print("=" * 80)
+
+        # Show threat summary
+        if threats:
+            print(f"\n📊 Threat Summary:")
+            threat_categories = {}
+            for threat in threats:
+                category = threat['threat_category']
+                threat_categories[category] = threat_categories.get(category, 0) + 1
+            for category, count in threat_categories.items():
+                print(f"   • {category}: {count}")
 
         # Save sample output
         if threatfox_raw or urlhaus_raw:
@@ -327,9 +406,13 @@ async def main():
             with open(output_file, "w") as f:
                 sample_data = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "threatfox_iocs": threatfox_iocs if threatfox_raw else [],
-                    "urlhaus_iocs": urlhaus_iocs if urlhaus_raw else [],
+                    "threatfox_iocs": threatfox_iocs,
+                    "urlhaus_iocs": urlhaus_iocs,
                     "total_iocs": total_iocs,
+                    "threats": threats[:3],  # Save first 3 threats
+                    "total_threats": len(threats),
+                    "associations": all_associations[:5],  # Save first 5 associations
+                    "total_associations": len(all_associations),
                 }
                 json.dump(sample_data, f, indent=2)
             print(f"\n💾 Sample data saved to: {output_file}")
