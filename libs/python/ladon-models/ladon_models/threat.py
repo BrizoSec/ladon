@@ -5,7 +5,7 @@ This module defines models for tracking threat actors, campaigns, malware famili
 and their associated TTPs (Tactics, Techniques, and Procedures) based on MITRE ATT&CK.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -128,8 +128,8 @@ class ThreatActor(BaseModel):
 
     # Metadata
     is_active: bool = Field(True, description="Whether actor is currently active")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
@@ -192,8 +192,8 @@ class ThreatCampaign(BaseModel):
 
     # Metadata
     is_active: bool = Field(True, description="Whether campaign is ongoing")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
@@ -265,8 +265,8 @@ class MalwareFamily(BaseModel):
     # Metadata
     is_active: bool = Field(True, description="Whether actively circulating")
     severity: str = Field("medium", description="Severity level")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
@@ -352,8 +352,8 @@ class Threat(BaseModel):
     is_active: bool = Field(True, description="Whether threat is currently active")
 
     # Processing metadata
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     def get_all_tactics(self) -> List[str]:
         """Extract all unique tactics from techniques."""
@@ -424,8 +424,8 @@ class ThreatIOCAssociation(BaseModel):
     notes: Optional[str] = Field(None, description="Additional context or notes")
     tags: List[str] = Field(default_factory=list)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}
@@ -458,7 +458,7 @@ class ThreatStatistics(BaseModel):
     threats_with_iocs: int = 0
     avg_iocs_per_threat: float = 0.0
 
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Config:
         json_encoders = {datetime: lambda v: v.isoformat()}

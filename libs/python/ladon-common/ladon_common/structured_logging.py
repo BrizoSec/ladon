@@ -29,7 +29,7 @@ import json
 import logging
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 # Context variable for trace_id
@@ -73,7 +73,7 @@ class StructuredFormatter(logging.Formatter):
         """
         # Base structured log
         log_data: Dict[str, Any] = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "severity": record.levelname,
             "service": self.service_name,
             "trace_id": trace_id_var.get(),

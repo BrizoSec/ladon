@@ -7,6 +7,7 @@ Implements the repository interfaces using Google BigQuery as the backend.
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -20,6 +21,46 @@ from .base import ActivityRepository, DetectionRepository, IOCRepository, Threat
 logger = logging.getLogger(__name__)
 
 
+def _validate_table_id(table_id: str) -> None:
+    """
+    Validate BigQuery table ID to prevent SQL injection.
+
+    BigQuery table IDs must follow the format: project.dataset.table
+    Each component can only contain alphanumeric characters, underscores, and hyphens.
+
+    Args:
+        table_id: The full table ID to validate
+
+    Raises:
+        ValueError: If table_id is invalid or contains suspicious characters
+    """
+    if not table_id:
+        raise ValueError("Table ID cannot be empty")
+
+    # Pattern: project-id.dataset_name.table_name
+    # - project: alphanumeric, hyphens, underscores
+    # - dataset: alphanumeric, underscores
+    # - table: alphanumeric, underscores
+    pattern = r"^[a-zA-Z0-9_-]+\.[a-zA-Z0-9_]+\.[a-zA-Z0-9_]+$"
+
+    if not re.match(pattern, table_id):
+        raise ValueError(
+            f"Invalid table ID format: {table_id}. "
+            "Expected format: project.dataset.table with only alphanumeric characters, underscores, and hyphens"
+        )
+
+    # Additional checks for SQL injection attempts
+    suspicious_patterns = [
+        ";", "--", "/*", "*/", "xp_", "sp_", "exec", "execute",
+        "drop", "delete", "truncate", "alter", "create", "insert"
+    ]
+
+    table_id_lower = table_id.lower()
+    for pattern in suspicious_patterns:
+        if pattern in table_id_lower:
+            raise ValueError(f"Table ID contains suspicious pattern: {pattern}")
+
+
 class BigQueryIOCRepository(IOCRepository):
     """BigQuery implementation of IOC repository."""
 
@@ -29,10 +70,14 @@ class BigQueryIOCRepository(IOCRepository):
 
         Args:
             config: BigQuery configuration
+
+        Raises:
+            ValueError: If table ID is invalid or contains SQL injection attempts
         """
         self.config = config
         self.client = bigquery.Client(project=config.project_id)
         self.table_id = f"{config.project_id}.{config.dataset}.{config.iocs_table}"
+        _validate_table_id(self.table_id)
 
     async def store_ioc(self, ioc: NormalizedIOC, use_upsert: bool = True) -> bool:
         """
@@ -376,12 +421,21 @@ class BigQueryActivityRepository(ActivityRepository):
     """BigQuery implementation of Activity repository."""
 
     def __init__(self, config: BigQueryConfig):
-        """Initialize BigQuery Activity repository."""
+        """
+        Initialize BigQuery Activity repository.
+
+        Args:
+            config: BigQuery configuration
+
+        Raises:
+            ValueError: If table ID is invalid or contains SQL injection attempts
+        """
         self.config = config
         self.client = bigquery.Client(project=config.project_id)
         self.table_id = (
             f"{config.project_id}.{config.dataset}.{config.activity_logs_table}"
         )
+        _validate_table_id(self.table_id)
 
     async def store_activity(self, activity: NormalizedActivity) -> bool:
         """Store a single activity event."""
@@ -555,10 +609,19 @@ class BigQueryDetectionRepository(DetectionRepository):
     """BigQuery implementation of Detection repository."""
 
     def __init__(self, config: BigQueryConfig):
-        """Initialize BigQuery Detection repository."""
+        """
+        Initialize BigQuery Detection repository.
+
+        Args:
+            config: BigQuery configuration
+
+        Raises:
+            ValueError: If table ID is invalid or contains SQL injection attempts
+        """
         self.config = config
         self.client = bigquery.Client(project=config.project_id)
         self.table_id = f"{config.project_id}.{config.dataset}.{config.detections_table}"
+        _validate_table_id(self.table_id)
 
     async def store_detection(self, detection: Detection) -> bool:
         """Store a single detection."""
@@ -781,11 +844,16 @@ class BigQueryThreatRepository(ThreatRepository):
 
         Args:
             config: BigQuery configuration
+
+        Raises:
+            ValueError: If table IDs are invalid or contain SQL injection attempts
         """
         self.config = config
         self.client = bigquery.Client(project=config.project_id)
         self.threats_table = f"{config.project_id}.{config.dataset}.{config.threats_table}"
         self.threat_ioc_associations_table = f"{config.project_id}.{config.dataset}.{config.threat_ioc_associations_table}"
+        _validate_table_id(self.threats_table)
+        _validate_table_id(self.threat_ioc_associations_table)
 
     async def store_threat(self, threat: Threat, use_upsert: bool = True) -> bool:
         """
