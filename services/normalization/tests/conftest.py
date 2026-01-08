@@ -105,3 +105,80 @@ def mock_subscriber():
         project_id="test-project",
         subscription_name="test-sub",
     )
+
+
+@pytest.fixture
+def sample_raw_threat():
+    """Sample raw threat data."""
+    return {
+        "threat_id": "threat_apt29",
+        "name": "APT29",
+        "aliases": ["Cozy Bear", "The Dukes"],
+        "threat_category": "actor",
+        "threat_type": "c2",
+        "description": "Advanced persistent threat group attributed to Russia",
+        "severity": "critical",
+        "confidence": 0.95,
+        "techniques": [
+            {
+                "technique_id": "T1059.001",
+                "technique_name": "PowerShell",
+                "tactic": "Execution",
+                "sub_technique": "Command and Scripting Interpreter: PowerShell",
+                "detection_methods": ["Monitor PowerShell execution"],
+                "mitigations": ["Execution Prevention"],
+                "reference_url": "https://attack.mitre.org/techniques/T1059/001/",
+            }
+        ],
+        "tactics": ["Execution", "Persistence"],
+        "sophistication": "advanced",
+        "actor_type": "nation_state",
+        "first_seen": "2024-01-01T00:00:00Z",
+        "last_seen": "2024-12-01T00:00:00Z",
+        "sources": ["misp", "alienvault_otx"],
+        "reference_urls": ["https://attack.mitre.org/groups/G0016/"],
+        "tags": ["apt", "russia", "nation-state"],
+        "is_active": True,
+    }
+
+
+@pytest.fixture
+def sample_raw_malware_threat():
+    """Sample raw malware family threat data."""
+    return {
+        "threat_id": "threat_asyncrat",
+        "name": "AsyncRAT",
+        "aliases": ["AsyncRAT"],
+        "threat_category": "malware_family",
+        "threat_type": "malware",
+        "description": "Remote Access Trojan targeting Windows systems",
+        "severity": "high",
+        "confidence": 0.90,
+        "techniques": [],
+        "tactics": ["Command and Control"],
+        "first_seen": "2024-06-01T00:00:00Z",
+        "last_seen": "2024-12-01T00:00:00Z",
+        "sources": ["abuse_ch"],
+        "reference_urls": [],
+        "tags": ["rat", "trojan", "windows"],
+        "is_active": True,
+    }
+
+
+@pytest.fixture
+def sample_raw_threat_ioc_association():
+    """Sample raw threat-IOC association data."""
+    return {
+        "threat_id": "threat_apt29",
+        "ioc_value": "evil.com",
+        "ioc_type": "domain",
+        "relationship_type": "uses",
+        "confidence": 0.95,
+        "first_seen": "2024-01-01T00:00:00Z",
+        "last_seen": "2024-01-02T00:00:00Z",
+        "observation_count": 5,
+        "sources": ["alienvault_otx", "misp"],
+        "reference_urls": ["https://example.com/report"],
+        "notes": "APT29 C2 infrastructure",
+        "tags": ["c2", "infrastructure"],
+    }

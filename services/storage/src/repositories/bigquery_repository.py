@@ -33,8 +33,20 @@ class BigQueryIOCRepository(IOCRepository):
         self.client = bigquery.Client(project=config.project_id)
         self.table_id = f"{config.project_id}.{config.dataset}.{config.iocs_table}"
 
-    async def store_ioc(self, ioc: NormalizedIOC) -> bool:
-        """Store a single IOC in BigQuery."""
+    async def store_ioc(self, ioc: NormalizedIOC, use_upsert: bool = True) -> bool:
+        """
+        Store a single IOC in BigQuery.
+
+        Args:
+            ioc: IOC to store
+            use_upsert: If True, uses MERGE for deduplication. If False, uses streaming insert.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if use_upsert:
+            return await self._upsert_ioc(ioc)
+
         try:
             row = self._ioc_to_row(ioc)
             errors = self.client.insert_rows_json(self.table_id, [row])
@@ -50,40 +62,152 @@ class BigQueryIOCRepository(IOCRepository):
             logger.error(f"Error storing IOC: {e}", exc_info=True)
             return False
 
-    async def store_iocs_batch(self, iocs: List[NormalizedIOC]) -> Dict[str, int]:
-        """Store multiple IOCs in a batch operation."""
+    async def _upsert_ioc(self, ioc: NormalizedIOC) -> bool:
+        """
+        Upsert IOC using MERGE statement to prevent duplicates.
+
+        Matches on (ioc_value, ioc_type, source) and updates if exists or inserts if not.
+        """
+        row = self._ioc_to_row(ioc)
+
+        # Build MERGE query for upsert behavior
+        merge_query = f"""
+            MERGE `{self.table_id}` T
+            USING (SELECT
+                @ioc_value AS ioc_value,
+                @ioc_type AS ioc_type,
+                @threat_type AS threat_type,
+                @confidence AS confidence,
+                @source AS source,
+                @first_seen AS first_seen,
+                @last_seen AS last_seen,
+                @tags AS tags,
+                @is_active AS is_active
+            ) S
+            ON T.ioc_value = S.ioc_value
+                AND T.ioc_type = S.ioc_type
+                AND T.source = S.source
+            WHEN MATCHED THEN
+                UPDATE SET
+                    threat_type = S.threat_type,
+                    confidence = GREATEST(T.confidence, S.confidence),
+                    last_seen = GREATEST(T.last_seen, S.last_seen),
+                    first_seen = LEAST(T.first_seen, S.first_seen),
+                    tags = S.tags,
+                    is_active = S.is_active,
+                    updated_at = CURRENT_TIMESTAMP()
+            WHEN NOT MATCHED THEN
+                INSERT (ioc_value, ioc_type, threat_type, confidence, source,
+                        first_seen, last_seen, tags, is_active, created_at, updated_at)
+                VALUES (S.ioc_value, S.ioc_type, S.threat_type, S.confidence, S.source,
+                        S.first_seen, S.last_seen, S.tags, S.is_active,
+                        CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+        """
+
+        job_config = QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("ioc_value", "STRING", row["ioc_value"]),
+                bigquery.ScalarQueryParameter("ioc_type", "STRING", row["ioc_type"]),
+                bigquery.ScalarQueryParameter("threat_type", "STRING", row["threat_type"]),
+                bigquery.ScalarQueryParameter("confidence", "FLOAT64", row["confidence"]),
+                bigquery.ScalarQueryParameter("source", "STRING", row["source"]),
+                bigquery.ScalarQueryParameter("first_seen", "TIMESTAMP", row["first_seen"]),
+                bigquery.ScalarQueryParameter("last_seen", "TIMESTAMP", row["last_seen"]),
+                bigquery.ArrayQueryParameter("tags", "STRING", row.get("tags", [])),
+                bigquery.ScalarQueryParameter("is_active", "BOOL", row.get("is_active", True)),
+            ]
+        )
+
         try:
+            query_job = self.client.query(merge_query, job_config=job_config)
+            query_job.result()  # Wait for completion
+
+            logger.info(f"Upserted IOC: {ioc.ioc_value} ({ioc.ioc_type}) from {ioc.source}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error upserting IOC: {e}", exc_info=True)
+            return False
+
+    async def store_iocs_batch(
+        self, iocs: List[NormalizedIOC], use_upsert: bool = True, chunk_size: int = 1000
+    ) -> Dict[str, int]:
+        """
+        Store multiple IOCs in a batch operation.
+
+        Args:
+            iocs: List of IOCs to store
+            use_upsert: If True, uses MERGE for deduplication. If False, uses streaming insert.
+            chunk_size: Maximum number of IOCs to process in one batch (default: 1000)
+
+        Returns:
+            Dictionary with 'success' and 'failed' counts
+        """
+        if use_upsert:
+            # For upsert, process in smaller chunks to avoid query size limits
+            total_success = 0
+            total_failed = 0
+
+            for i in range(0, len(iocs), chunk_size):
+                chunk = iocs[i : i + chunk_size]
+                for ioc in chunk:
+                    success = await self._upsert_ioc(ioc)
+                    if success:
+                        total_success += 1
+                    else:
+                        total_failed += 1
+
+            logger.info(f"Upserted IOC batch: {total_success}/{len(iocs)} successful")
+            return {"success": total_success, "failed": total_failed}
+
+        try:
+            # Use streaming insert for batch loading (no deduplication)
             rows = [self._ioc_to_row(ioc) for ioc in iocs]
 
-            # Use streaming insert for batch loading
-            errors = self.client.insert_rows_json(self.table_id, rows)
+            # Process in chunks to avoid memory issues
+            total_success = 0
+            total_failed = 0
 
-            if errors:
-                logger.error(f"Batch insert had errors: {errors}")
-                success_count = len(iocs) - len(errors)
-            else:
-                success_count = len(iocs)
+            for i in range(0, len(rows), chunk_size):
+                chunk_rows = rows[i : i + chunk_size]
+                errors = self.client.insert_rows_json(self.table_id, chunk_rows)
 
-            logger.info(
-                f"Stored IOC batch: {success_count}/{len(iocs)} successful"
-            )
+                if errors:
+                    logger.error(f"Batch insert chunk {i // chunk_size} had errors: {errors}")
+                    total_success += len(chunk_rows) - len(errors)
+                    total_failed += len(errors)
+                else:
+                    total_success += len(chunk_rows)
 
-            return {"success": success_count, "failed": len(iocs) - success_count}
+            logger.info(f"Stored IOC batch: {total_success}/{len(iocs)} successful")
+            return {"success": total_success, "failed": total_failed}
 
         except Exception as e:
             logger.error(f"Error in batch IOC insert: {e}", exc_info=True)
             return {"success": 0, "failed": len(iocs)}
 
     async def get_ioc(
-        self, ioc_value: str, ioc_type: str
+        self, ioc_value: str, ioc_type: str, days_back: int = 90
     ) -> Optional[NormalizedIOC]:
-        """Retrieve a single IOC by value and type."""
+        """
+        Retrieve a single IOC by value and type.
+
+        Args:
+            ioc_value: IOC value to retrieve
+            ioc_type: Type of IOC
+            days_back: Number of days to look back (default: 90). Used for partition filtering.
+
+        Returns:
+            NormalizedIOC object or None if not found
+        """
+        # Add partition filter to reduce cost
         query = f"""
             SELECT *
             FROM `{self.table_id}`
             WHERE ioc_value = @ioc_value
               AND ioc_type = @ioc_type
               AND is_active = TRUE
+              AND DATE(last_seen) >= DATE_SUB(CURRENT_DATE(), INTERVAL @days_back DAY)
             ORDER BY last_seen DESC
             LIMIT 1
         """
@@ -92,6 +216,7 @@ class BigQueryIOCRepository(IOCRepository):
             query_parameters=[
                 bigquery.ScalarQueryParameter("ioc_value", "STRING", ioc_value),
                 bigquery.ScalarQueryParameter("ioc_type", "STRING", ioc_type),
+                bigquery.ScalarQueryParameter("days_back", "INT64", days_back),
             ]
         )
 
@@ -202,7 +327,12 @@ class BigQueryIOCRepository(IOCRepository):
             "first_seen": ioc.first_seen.isoformat(),
             "last_seen": ioc.last_seen.isoformat(),
             "tags": ioc.tags,
-            "enrichment": json.dumps(ioc.metadata.model_dump() if ioc.metadata else {}),
+            "enrichment": json.dumps(
+                ioc.metadata.model_dump() if ioc.metadata and hasattr(ioc.metadata, "model_dump") else {}
+            ),
+            "metadata": json.dumps(
+                ioc.metadata.model_dump() if ioc.metadata and hasattr(ioc.metadata, "model_dump") else {}
+            ),
             "is_active": ioc.is_active,
             "created_at": datetime.utcnow().isoformat(),
         }
@@ -616,11 +746,23 @@ class BigQueryThreatRepository(ThreatRepository):
         """
         self.config = config
         self.client = bigquery.Client(project=config.project_id)
-        self.threats_table = f"{config.project_id}.{config.dataset}.threats"
-        self.threat_ioc_associations_table = f"{config.project_id}.{config.dataset}.threat_ioc_associations"
+        self.threats_table = f"{config.project_id}.{config.dataset}.{config.threats_table}"
+        self.threat_ioc_associations_table = f"{config.project_id}.{config.dataset}.{config.threat_ioc_associations_table}"
 
-    async def store_threat(self, threat: Threat) -> bool:
-        """Store a single threat in BigQuery."""
+    async def store_threat(self, threat: Threat, use_upsert: bool = True) -> bool:
+        """
+        Store a single threat in BigQuery.
+
+        Args:
+            threat: Threat to store
+            use_upsert: If True, uses MERGE for deduplication. If False, uses streaming insert.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if use_upsert:
+            return await self._upsert_threat(threat)
+
         try:
             row = self._threat_to_row(threat)
             errors = self.client.insert_rows_json(self.threats_table, [row])
@@ -636,41 +778,177 @@ class BigQueryThreatRepository(ThreatRepository):
             logger.error(f"Error storing threat: {e}", exc_info=True)
             return False
 
-    async def store_threats_batch(self, threats: List[Threat]) -> Dict[str, int]:
-        """Store multiple threats in a batch operation."""
+    async def _upsert_threat(self, threat: Threat) -> bool:
+        """
+        Upsert threat using MERGE statement to prevent duplicates.
+
+        Matches on threat_id and updates if exists or inserts if not.
+        """
+        row = self._threat_to_row(threat)
+
+        # Build MERGE query for upsert behavior
+        merge_query = f"""
+            MERGE `{self.threats_table}` T
+            USING (SELECT
+                @threat_id AS threat_id,
+                @name AS name,
+                @threat_category AS threat_category,
+                @threat_type AS threat_type,
+                @confidence AS confidence,
+                @last_seen AS last_seen,
+                @first_seen AS first_seen
+            ) S
+            ON T.threat_id = S.threat_id
+            WHEN MATCHED THEN
+                UPDATE SET
+                    name = S.name,
+                    threat_category = S.threat_category,
+                    threat_type = S.threat_type,
+                    confidence = GREATEST(T.confidence, S.confidence),
+                    last_seen = GREATEST(T.last_seen, S.last_seen),
+                    first_seen = LEAST(T.first_seen, S.first_seen),
+                    updated_at = CURRENT_TIMESTAMP()
+            WHEN NOT MATCHED THEN
+                INSERT (threat_id, name, threat_category, threat_type, confidence,
+                        first_seen, last_seen, created_at, updated_at)
+                VALUES (S.threat_id, S.name, S.threat_category, S.threat_type, S.confidence,
+                        S.first_seen, S.last_seen, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+        """
+
+        job_config = QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("threat_id", "STRING", row["threat_id"]),
+                bigquery.ScalarQueryParameter("name", "STRING", row["name"]),
+                bigquery.ScalarQueryParameter("threat_category", "STRING", row["threat_category"]),
+                bigquery.ScalarQueryParameter("threat_type", "STRING", row["threat_type"]),
+                bigquery.ScalarQueryParameter("confidence", "FLOAT64", row["confidence"]),
+                bigquery.ScalarQueryParameter("first_seen", "TIMESTAMP", row["first_seen"]),
+                bigquery.ScalarQueryParameter("last_seen", "TIMESTAMP", row["last_seen"]),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(merge_query, job_config=job_config)
+            query_job.result()  # Wait for completion
+
+            logger.info(f"Upserted threat: {threat.threat_id} ({threat.name})")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error upserting threat: {e}", exc_info=True)
+            return False
+
+    async def store_threats_batch(
+        self, threats: List[Threat], use_upsert: bool = True, chunk_size: int = 500
+    ) -> Dict[str, int]:
+        """
+        Store multiple threats in a batch operation.
+
+        Args:
+            threats: List of threats to store
+            use_upsert: If True, uses MERGE for deduplication. If False, uses streaming insert.
+            chunk_size: Maximum number of threats to process in one batch (default: 500)
+
+        Returns:
+            Dictionary with 'success' and 'failed' counts
+        """
+        if use_upsert:
+            total_success = 0
+            total_failed = 0
+
+            for i in range(0, len(threats), chunk_size):
+                chunk = threats[i : i + chunk_size]
+                for threat in chunk:
+                    success = await self._upsert_threat(threat)
+                    if success:
+                        total_success += 1
+                    else:
+                        total_failed += 1
+
+            logger.info(f"Upserted threat batch: {total_success}/{len(threats)} successful")
+            return {"success": total_success, "failed": total_failed}
+
         try:
             rows = [self._threat_to_row(threat) for threat in threats]
 
-            errors = self.client.insert_rows_json(self.threats_table, rows)
+            total_success = 0
+            total_failed = 0
 
-            if errors:
-                logger.error(f"Batch insert had errors: {errors}")
-                success_count = len(threats) - len(errors)
-            else:
-                success_count = len(threats)
+            for i in range(0, len(rows), chunk_size):
+                chunk_rows = rows[i : i + chunk_size]
+                errors = self.client.insert_rows_json(self.threats_table, chunk_rows)
 
-            logger.info(
-                f"Stored threat batch: {success_count}/{len(threats)} successful"
-            )
+                if errors:
+                    logger.error(f"Batch insert chunk {i // chunk_size} had errors: {errors}")
+                    total_success += len(chunk_rows) - len(errors)
+                    total_failed += len(errors)
+                else:
+                    total_success += len(chunk_rows)
 
-            return {"success": success_count, "failed": len(threats) - success_count}
+            logger.info(f"Stored threat batch: {total_success}/{len(threats)} successful")
+            return {"success": total_success, "failed": total_failed}
 
         except Exception as e:
             logger.error(f"Error in batch threat insert: {e}", exc_info=True)
             return {"success": 0, "failed": len(threats)}
 
-    async def get_threat(self, threat_id: str) -> Optional[Threat]:
-        """Retrieve a single threat by ID."""
+    # Removed duplicate success_count assignment that was incomplete
+    async def get_threats_for_ioc(self, ioc_value: str, ioc_type: str, limit: int = 100) -> List[Threat]:
+        """Retrieve threats associated with an IOC."""
+        query = f"""
+            SELECT DISTINCT T.*
+            FROM `{self.threats_table}` T
+            INNER JOIN `{self.threat_ioc_associations_table}` A
+                ON T.threat_id = A.threat_id
+            WHERE A.ioc_value = @ioc_value
+              AND A.ioc_type = @ioc_type
+            ORDER BY T.last_seen DESC
+            LIMIT @limit
+        """
+
+        job_config = QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter("ioc_value", "STRING", ioc_value),
+                bigquery.ScalarQueryParameter("ioc_type", "STRING", ioc_type),
+                bigquery.ScalarQueryParameter("limit", "INT64", limit),
+            ]
+        )
+
+        try:
+            query_job = self.client.query(query, job_config=job_config)
+            results = query_job.result()
+
+            return [self._row_to_threat(dict(row)) for row in results]
+
+        except Exception as e:
+            logger.error(f"Error retrieving threats for IOC: {e}", exc_info=True)
+            return []
+
+    async def get_threat(self, threat_id: str, days_back: int = 90) -> Optional[Threat]:
+        """
+        Retrieve a single threat by ID.
+
+        Args:
+            threat_id: The threat ID to retrieve
+            days_back: Number of days to look back (default: 90). Used for partition filtering.
+
+        Returns:
+            Threat object or None if not found
+        """
+        # Add partition filter to reduce cost (scans last N days only)
         query = f"""
             SELECT *
             FROM `{self.threats_table}`
             WHERE threat_id = @threat_id
+              AND DATE(last_seen) >= DATE_SUB(CURRENT_DATE(), INTERVAL @days_back DAY)
+            ORDER BY last_seen DESC
             LIMIT 1
         """
 
         job_config = QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("threat_id", "STRING", threat_id),
+                bigquery.ScalarQueryParameter("days_back", "INT64", days_back),
             ]
         )
 

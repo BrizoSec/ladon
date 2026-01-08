@@ -15,13 +15,23 @@ from ladon_models import (
     DetectionStatus,
     IOCSource,
     IOCType,
+    MITRETechnique,
     NormalizedActivity,
     NormalizedIOC,
     Severity,
+    Threat,
+    ThreatIOCAssociation,
     ThreatType,
 )
 
-from storage_service import BigQueryConfig, FirestoreConfig, RedisConfig, StorageConfig
+# Import config classes directly
+import sys
+from pathlib import Path
+
+src_path = Path(__file__).parent.parent / "src"
+sys.path.insert(0, str(src_path))
+
+from config import BigQueryConfig, FirestoreConfig, RedisConfig, StorageConfig
 
 
 # ============================================================================
@@ -38,6 +48,8 @@ def bigquery_config():
         iocs_table="iocs",
         activity_logs_table="activity_logs",
         detections_table="detections",
+        threats_table="threats",
+        threat_ioc_associations_table="threat_ioc_associations",
     )
 
 
@@ -162,6 +174,91 @@ def sample_detection(sample_ioc):
         status=DetectionStatus.NEW,
         first_seen=datetime.utcnow(),
         last_seen=datetime.utcnow(),
+    )
+
+
+@pytest.fixture
+def sample_mitre_technique():
+    """Sample MITRE ATT&CK technique."""
+    return MITRETechnique(
+        technique_id="T1059.001",
+        technique_name="PowerShell",
+        tactic="Execution",
+        sub_technique="Command and Scripting Interpreter: PowerShell",
+        detection_methods=["Monitor PowerShell execution", "Analyze script content"],
+        mitigations=["Execution Prevention", "Code Signing"],
+        reference_url="https://attack.mitre.org/techniques/T1059/001/",
+    )
+
+
+@pytest.fixture
+def sample_threat(sample_mitre_technique):
+    """Sample threat actor."""
+    return Threat(
+        threat_id="threat_apt29",
+        name="APT29",
+        aliases=["Cozy Bear", "The Dukes"],
+        threat_category="actor",
+        threat_type=ThreatType.C2,
+        description="Advanced persistent threat group attributed to Russia",
+        severity="critical",
+        confidence=0.95,
+        techniques=[sample_mitre_technique],
+        tactics=["Execution", "Persistence"],
+        first_seen=datetime.utcnow() - timedelta(days=365),
+        last_seen=datetime.utcnow(),
+        sources=["misp", "alienvault_otx"],
+        reference_urls=["https://attack.mitre.org/groups/G0016/"],
+        tags=["apt", "russia", "nation-state"],
+        is_active=True,
+    )
+
+
+@pytest.fixture
+def sample_malware_threat():
+    """Sample malware family threat."""
+    return Threat(
+        threat_id="threat_asyncrat",
+        name="AsyncRAT",
+        aliases=["AsyncRAT", "AsyncRat"],
+        threat_category="malware_family",
+        threat_type=ThreatType.MALWARE,
+        description="Remote Access Trojan targeting Windows systems",
+        severity="high",
+        confidence=0.90,
+        techniques=[],
+        tactics=["Command and Control"],
+        first_seen=datetime.utcnow() - timedelta(days=180),
+        last_seen=datetime.utcnow(),
+        sources=["abuse_ch"],
+        reference_urls=[],
+        tags=["rat", "trojan", "windows"],
+        is_active=True,
+    )
+
+
+@pytest.fixture
+def sample_threats(sample_threat, sample_malware_threat):
+    """List of sample threats for batch testing."""
+    return [sample_threat, sample_malware_threat]
+
+
+@pytest.fixture
+def sample_threat_ioc_association():
+    """Sample threat-IOC association."""
+    return ThreatIOCAssociation(
+        threat_id="threat_apt29",
+        ioc_value="evil.com",
+        ioc_type=IOCType.DOMAIN,
+        relationship_type="uses",
+        confidence=0.95,
+        first_seen=datetime.utcnow() - timedelta(hours=24),
+        last_seen=datetime.utcnow(),
+        observation_count=5,
+        sources=["alienvault_otx", "misp"],
+        reference_urls=["https://example.com/report"],
+        notes="APT29 C2 infrastructure",
+        tags=["c2", "infrastructure"],
     )
 
 

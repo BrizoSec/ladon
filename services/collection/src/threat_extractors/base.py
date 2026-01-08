@@ -67,61 +67,40 @@ class ThreatExtractor(ABC):
         """
         Parse MITRE ATT&CK technique IDs into structured format.
 
+        Uses comprehensive MITRE ATT&CK framework mapping from mitre_attack.py
+        covering 200+ techniques across all 14 tactics.
+
         Args:
             attack_ids: List of MITRE technique IDs (e.g., ['T1059.001', 'T1190'])
 
         Returns:
             List of technique dictionaries
         """
+        from .mitre_attack import get_technique_info
+
         techniques = []
 
-        # Simplified MITRE ATT&CK tactic mapping
-        # In production, this should use the full MITRE ATT&CK matrix
-        tactic_map = {
-            "T1190": ("Exploit Public-Facing Application", "Initial Access"),
-            "T1566": ("Phishing", "Initial Access"),
-            "T1059": ("Command and Scripting Interpreter", "Execution"),
-            "T1053": ("Scheduled Task/Job", "Execution"),
-            "T1055": ("Process Injection", "Defense Evasion"),
-            "T1548": ("Abuse Elevation Control Mechanism", "Privilege Escalation"),
-            "T1082": ("System Information Discovery", "Discovery"),
-            "T1083": ("File and Directory Discovery", "Discovery"),
-            "T1057": ("Process Discovery", "Discovery"),
-            "T1071": ("Application Layer Protocol", "Command and Control"),
-            "T1041": ("Exfiltration Over C2 Channel", "Exfiltration"),
-            "T1113": ("Screen Capture", "Collection"),
-            "T1056": ("Input Capture", "Collection"),
-            "T1115": ("Clipboard Data", "Collection"),
-            "T1555": ("Credentials from Password Stores", "Credential Access"),
-            "T1562": ("Impair Defenses", "Defense Evasion"),
-            "T1564": ("Hide Artifacts", "Defense Evasion"),
-            "T1195": ("Supply Chain Compromise", "Initial Access"),
-        }
-
         for attack_id in attack_ids:
-            # Extract base technique (without sub-technique)
-            base_technique = attack_id.split(".")[0]
+            # Normalize technique ID
+            attack_id = attack_id.strip().upper()
 
-            # Get technique info
-            technique_info = tactic_map.get(
-                base_technique, (f"Unknown Technique {attack_id}", "Unknown")
-            )
+            # Get technique info from comprehensive mapping
+            technique_info = get_technique_info(attack_id)
 
-            technique = {
-                "technique_id": attack_id,
-                "technique_name": technique_info[0],
-                "tactic": technique_info[1],
-                "sub_technique": None,
-                "detection_methods": [],
-                "mitigations": [],
-                "reference_url": f"https://attack.mitre.org/techniques/{attack_id.replace('.', '/')}/"
-            }
-
-            # Add sub-technique name if applicable
-            if "." in attack_id:
-                technique["sub_technique"] = f"Sub-technique {attack_id.split('.')[1]}"
-
-            techniques.append(technique)
+            if technique_info:
+                techniques.append(technique_info)
+            else:
+                # Fallback for unmapped techniques
+                logger.warning(f"Unknown MITRE technique: {attack_id}")
+                techniques.append({
+                    "technique_id": attack_id,
+                    "technique_name": f"Unknown Technique {attack_id}",
+                    "tactic": "Unknown",
+                    "sub_technique": None,
+                    "detection_methods": [],
+                    "mitigations": [],
+                    "reference_url": f"https://attack.mitre.org/techniques/{attack_id.replace('.', '/')}/"
+                })
 
         return techniques
 

@@ -20,6 +20,8 @@ class BigQueryConfig(BaseSettings):
     iocs_table: str = "iocs"
     activity_logs_table: str = "activity_logs"
     detections_table: str = "detections"
+    threats_table: str = "threats"
+    threat_ioc_associations_table: str = "threat_ioc_associations"
 
     # Performance settings
     max_results_per_page: int = 1000

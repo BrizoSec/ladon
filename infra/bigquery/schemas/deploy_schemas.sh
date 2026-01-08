@@ -68,6 +68,18 @@ replace_placeholders() {
     sed "s/threat_xdr/${DATASET}/g" "$file"
 }
 
+# Deploy iocs table
+echo ""
+echo -e "${YELLOW}Deploying 'iocs' table...${NC}"
+if replace_placeholders "iocs.sql" | bq query \
+    --use_legacy_sql=false \
+    --project_id="$PROJECT_ID"; then
+    echo -e "${GREEN}✓ 'iocs' table deployed successfully${NC}"
+else
+    echo -e "${RED}✗ Failed to deploy 'iocs' table${NC}"
+    exit 1
+fi
+
 # Deploy threats table
 echo ""
 echo -e "${YELLOW}Deploying 'threats' table...${NC}"
@@ -95,9 +107,9 @@ fi
 # Verify tables exist
 echo ""
 echo -e "${YELLOW}Verifying table deployment...${NC}"
-TABLES=$(bq ls --max_results=100 "${PROJECT_ID}:${DATASET}" | grep -E "threats|threat_ioc" | wc -l)
+TABLES=$(bq ls --max_results=100 "${PROJECT_ID}:${DATASET}" | grep -E "iocs|threats|threat_ioc" | wc -l)
 
-if [ "$TABLES" -ge 2 ]; then
+if [ "$TABLES" -ge 3 ]; then
     echo -e "${GREEN}✓ All tables verified${NC}"
 else
     echo -e "${RED}✗ Table verification failed${NC}"
@@ -107,6 +119,8 @@ fi
 # Show table information
 echo ""
 echo -e "${YELLOW}Table Information:${NC}"
+echo ""
+bq show "${PROJECT_ID}:${DATASET}.iocs" | head -20
 echo ""
 bq show "${PROJECT_ID}:${DATASET}.threats" | head -20
 echo ""
@@ -119,16 +133,26 @@ echo -e "${GREEN}Deployment Complete!${NC}"
 echo -e "${GREEN}==============================================================================${NC}"
 echo ""
 echo "Tables deployed:"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.iocs"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.threats"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.threat_ioc_associations"
 echo ""
-echo "Views created:"
+echo "IOC Views:"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.active_iocs"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.hot_iocs"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.critical_iocs"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.ioc_detections"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.iocs_by_source"
+echo ""
+echo "Threat Views:"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.active_threats"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.apt_threats"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.high_confidence_associations"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.ioc_threat_lookup"
 echo ""
 echo "Materialized views:"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.ioc_stats_mv"
+echo "  ✓ ${PROJECT_ID}:${DATASET}.ioc_trends_mv"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.threat_stats_mv"
 echo "  ✓ ${PROJECT_ID}:${DATASET}.threat_ioc_stats_mv"
 echo ""
