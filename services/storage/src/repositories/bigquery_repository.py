@@ -4,6 +4,7 @@ BigQuery repository implementations for IOCs, Activities, and Detections.
 Implements the repository interfaces using Google BigQuery as the backend.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -49,7 +50,9 @@ class BigQueryIOCRepository(IOCRepository):
 
         try:
             row = self._ioc_to_row(ioc)
-            errors = self.client.insert_rows_json(self.table_id, [row])
+            errors = await asyncio.to_thread(
+                self.client.insert_rows_json, self.table_id, [row]
+            )
 
             if errors:
                 logger.error(f"Failed to insert IOC: {errors}")
@@ -82,6 +85,8 @@ class BigQueryIOCRepository(IOCRepository):
                 @first_seen AS first_seen,
                 @last_seen AS last_seen,
                 @tags AS tags,
+                @enrichment AS enrichment,
+                @metadata AS metadata,
                 @is_active AS is_active
             ) S
             ON T.ioc_value = S.ioc_value
@@ -94,14 +99,17 @@ class BigQueryIOCRepository(IOCRepository):
                     last_seen = GREATEST(T.last_seen, S.last_seen),
                     first_seen = LEAST(T.first_seen, S.first_seen),
                     tags = S.tags,
+                    enrichment = S.enrichment,
+                    metadata = S.metadata,
                     is_active = S.is_active,
                     updated_at = CURRENT_TIMESTAMP()
             WHEN NOT MATCHED THEN
                 INSERT (ioc_value, ioc_type, threat_type, confidence, source,
-                        first_seen, last_seen, tags, is_active, created_at, updated_at)
+                        first_seen, last_seen, tags, enrichment, metadata,
+                        is_active, created_at, updated_at)
                 VALUES (S.ioc_value, S.ioc_type, S.threat_type, S.confidence, S.source,
-                        S.first_seen, S.last_seen, S.tags, S.is_active,
-                        CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
+                        S.first_seen, S.last_seen, S.tags, S.enrichment, S.metadata,
+                        S.is_active, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())
         """
 
         job_config = QueryJobConfig(
@@ -114,13 +122,17 @@ class BigQueryIOCRepository(IOCRepository):
                 bigquery.ScalarQueryParameter("first_seen", "TIMESTAMP", row["first_seen"]),
                 bigquery.ScalarQueryParameter("last_seen", "TIMESTAMP", row["last_seen"]),
                 bigquery.ArrayQueryParameter("tags", "STRING", row.get("tags", [])),
+                bigquery.ScalarQueryParameter("enrichment", "STRING", row.get("enrichment", "{}")),
+                bigquery.ScalarQueryParameter("metadata", "STRING", row.get("metadata", "{}")),
                 bigquery.ScalarQueryParameter("is_active", "BOOL", row.get("is_active", True)),
             ]
         )
 
         try:
-            query_job = self.client.query(merge_query, job_config=job_config)
-            query_job.result()  # Wait for completion
+            query_job = await asyncio.to_thread(
+                self.client.query, merge_query, job_config=job_config
+            )
+            await asyncio.to_thread(query_job.result)  # Wait for completion
 
             logger.info(f"Upserted IOC: {ioc.ioc_value} ({ioc.ioc_type}) from {ioc.source}")
             return True
@@ -170,7 +182,9 @@ class BigQueryIOCRepository(IOCRepository):
 
             for i in range(0, len(rows), chunk_size):
                 chunk_rows = rows[i : i + chunk_size]
-                errors = self.client.insert_rows_json(self.table_id, chunk_rows)
+                errors = await asyncio.to_thread(
+                    self.client.insert_rows_json, self.table_id, chunk_rows
+                )
 
                 if errors:
                     logger.error(f"Batch insert chunk {i // chunk_size} had errors: {errors}")
@@ -221,8 +235,10 @@ class BigQueryIOCRepository(IOCRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = list(query_job.result())
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(lambda: list(query_job.result()))
 
             if not results:
                 return None
@@ -280,8 +296,10 @@ class BigQueryIOCRepository(IOCRepository):
         job_config = QueryJobConfig(query_parameters=params)
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(query_job.result)
 
             return [self._row_to_ioc(dict(row)) for row in results]
 
@@ -306,8 +324,10 @@ class BigQueryIOCRepository(IOCRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            query_job.result()  # Wait for completion
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            await asyncio.to_thread(query_job.result)  # Wait for completion
 
             logger.info(f"Deleted IOC: {ioc_value} ({ioc_type})")
             return True
@@ -367,7 +387,9 @@ class BigQueryActivityRepository(ActivityRepository):
         """Store a single activity event."""
         try:
             row = self._activity_to_row(activity)
-            errors = self.client.insert_rows_json(self.table_id, [row])
+            errors = await asyncio.to_thread(
+                self.client.insert_rows_json, self.table_id, [row]
+            )
 
             if errors:
                 logger.error(f"Failed to insert activity: {errors}")
@@ -385,7 +407,9 @@ class BigQueryActivityRepository(ActivityRepository):
         """Store multiple activities in a batch."""
         try:
             rows = [self._activity_to_row(activity) for activity in activities]
-            errors = self.client.insert_rows_json(self.table_id, rows)
+            errors = await asyncio.to_thread(
+                self.client.insert_rows_json, self.table_id, rows
+            )
 
             success_count = len(activities) - len(errors) if errors else len(activities)
 
@@ -415,8 +439,10 @@ class BigQueryActivityRepository(ActivityRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = list(query_job.result())
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(lambda: list(query_job.result()))
 
             if not results:
                 return None
@@ -475,8 +501,10 @@ class BigQueryActivityRepository(ActivityRepository):
         job_config = QueryJobConfig(query_parameters=params)
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(query_job.result)
 
             return [self._row_to_activity(dict(row)) for row in results]
 
@@ -536,7 +564,9 @@ class BigQueryDetectionRepository(DetectionRepository):
         """Store a single detection."""
         try:
             row = self._detection_to_row(detection)
-            errors = self.client.insert_rows_json(self.table_id, [row])
+            errors = await asyncio.to_thread(
+                self.client.insert_rows_json, self.table_id, [row]
+            )
 
             if errors:
                 logger.error(f"Failed to insert detection: {errors}")
@@ -555,7 +585,9 @@ class BigQueryDetectionRepository(DetectionRepository):
         """Store multiple detections in a batch."""
         try:
             rows = [self._detection_to_row(det) for det in detections]
-            errors = self.client.insert_rows_json(self.table_id, rows)
+            errors = await asyncio.to_thread(
+                self.client.insert_rows_json, self.table_id, rows
+            )
 
             success_count = (
                 len(detections) - len(errors) if errors else len(detections)
@@ -590,8 +622,10 @@ class BigQueryDetectionRepository(DetectionRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = list(query_job.result())
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(lambda: list(query_job.result()))
 
             if not results:
                 return None
@@ -648,8 +682,10 @@ class BigQueryDetectionRepository(DetectionRepository):
         job_config = QueryJobConfig(query_parameters=params)
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(query_job.result)
 
             return [self._row_to_detection(dict(row)) for row in results]
 
@@ -686,8 +722,10 @@ class BigQueryDetectionRepository(DetectionRepository):
         job_config = QueryJobConfig(query_parameters=params)
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            query_job.result()  # Wait for completion
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            await asyncio.to_thread(query_job.result)  # Wait for completion
 
             logger.info(f"Updated detection {detection_id} status to {status}")
             return True
@@ -765,7 +803,9 @@ class BigQueryThreatRepository(ThreatRepository):
 
         try:
             row = self._threat_to_row(threat)
-            errors = self.client.insert_rows_json(self.threats_table, [row])
+            errors = await asyncio.to_thread(
+                self.client.insert_rows_json, self.threats_table, [row]
+            )
 
             if errors:
                 logger.error(f"Failed to insert threat: {errors}")
@@ -828,8 +868,10 @@ class BigQueryThreatRepository(ThreatRepository):
         )
 
         try:
-            query_job = self.client.query(merge_query, job_config=job_config)
-            query_job.result()  # Wait for completion
+            query_job = await asyncio.to_thread(
+                self.client.query, merge_query, job_config=job_config
+            )
+            await asyncio.to_thread(query_job.result)  # Wait for completion
 
             logger.info(f"Upserted threat: {threat.threat_id} ({threat.name})")
             return True
@@ -876,7 +918,9 @@ class BigQueryThreatRepository(ThreatRepository):
 
             for i in range(0, len(rows), chunk_size):
                 chunk_rows = rows[i : i + chunk_size]
-                errors = self.client.insert_rows_json(self.threats_table, chunk_rows)
+                errors = await asyncio.to_thread(
+                    self.client.insert_rows_json, self.threats_table, chunk_rows
+                )
 
                 if errors:
                     logger.error(f"Batch insert chunk {i // chunk_size} had errors: {errors}")
@@ -915,8 +959,10 @@ class BigQueryThreatRepository(ThreatRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(query_job.result)
 
             return [self._row_to_threat(dict(row)) for row in results]
 
@@ -953,8 +999,10 @@ class BigQueryThreatRepository(ThreatRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = list(query_job.result())
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(lambda: list(query_job.result()))
 
             if not results:
                 return None
@@ -1016,8 +1064,10 @@ class BigQueryThreatRepository(ThreatRepository):
         job_config = QueryJobConfig(query_parameters=parameters)
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(query_job.result)
 
             threats = [self._row_to_threat(dict(row)) for row in results]
             logger.info(f"Found {len(threats)} threats matching criteria")
@@ -1033,8 +1083,10 @@ class BigQueryThreatRepository(ThreatRepository):
         """Associate an IOC with a threat."""
         try:
             row = self._association_to_row(association)
-            errors = self.client.insert_rows_json(
-                self.threat_ioc_associations_table, [row]
+            errors = await asyncio.to_thread(
+                self.client.insert_rows_json,
+                self.threat_ioc_associations_table,
+                [row]
             )
 
             if errors:
@@ -1072,8 +1124,10 @@ class BigQueryThreatRepository(ThreatRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(query_job.result)
 
             threats = [self._row_to_threat(dict(row)) for row in results]
             logger.info(
@@ -1112,8 +1166,10 @@ class BigQueryThreatRepository(ThreatRepository):
         )
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            results = query_job.result()
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            results = await asyncio.to_thread(query_job.result)
 
             iocs = [dict(row) for row in results]
             logger.info(f"Found {len(iocs)} IOCs associated with threat {threat_id}")
@@ -1166,8 +1222,10 @@ class BigQueryThreatRepository(ThreatRepository):
         job_config = QueryJobConfig(query_parameters=parameters)
 
         try:
-            query_job = self.client.query(query, job_config=job_config)
-            query_job.result()  # Wait for completion
+            query_job = await asyncio.to_thread(
+                self.client.query, query, job_config=job_config
+            )
+            await asyncio.to_thread(query_job.result)  # Wait for completion
 
             logger.info(f"Updated threat {threat_id}")
             return True

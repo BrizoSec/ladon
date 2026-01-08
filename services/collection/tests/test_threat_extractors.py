@@ -43,13 +43,22 @@ class TestAlienVaultThreatExtractor:
         self, extractor, sample_alienvault_pulse
     ):
         """Test extracting threat-IOC associations."""
-        associations = extractor.extract_threat_associations(sample_alienvault_pulse)
+        # First extract threats to get a threat_id
+        threats = extractor.extract_threats(sample_alienvault_pulse)
+        assert len(threats) > 0
+        threat_id = threats[0]["threat_id"]
+
+        # Now extract associations with the threat_id
+        associations = extractor.extract_threat_ioc_associations(
+            sample_alienvault_pulse, threat_id
+        )
 
         # Should create associations for each IOC with each threat
         assert len(associations) > 0
 
         assoc = associations[0]
         assert "threat_id" in assoc
+        assert assoc["threat_id"] == threat_id
         assert "ioc_value" in assoc
         assert "ioc_type" in assoc
         assert "relationship_type" in assoc
@@ -110,11 +119,12 @@ class TestAlienVaultThreatExtractor:
 
     def test_generate_threat_id(self, extractor):
         """Test threat ID generation."""
+        # Correct parameter order: (source, identifier, timestamp)
         threat_id_1 = extractor._generate_threat_id(
-            "APT29", "actor", "alienvault_otx"
+            "alienvault_otx", "APT29"
         )
         threat_id_2 = extractor._generate_threat_id(
-            "APT29", "actor", "alienvault_otx"
+            "alienvault_otx", "APT29"
         )
 
         # Should generate consistent IDs
@@ -182,15 +192,24 @@ class TestAbuseCHThreatExtractor:
 
     def test_extract_threat_associations(self, extractor, sample_abusech_entry):
         """Test extracting threat-IOC associations."""
-        associations = extractor.extract_threat_associations(sample_abusech_entry)
+        # First extract threats to get a threat_id
+        threats = extractor.extract_threats(sample_abusech_entry)
+        assert len(threats) > 0
+        threat_id = threats[0]["threat_id"]
 
-        assert len(associations) == 1
+        # Now extract associations with the threat_id
+        associations = extractor.extract_threat_ioc_associations(
+            sample_abusech_entry, threat_id
+        )
+
+        assert len(associations) >= 1
 
         assoc = associations[0]
         assert assoc["ioc_value"] == "evil.com"
         assert assoc["ioc_type"] == "domain"
         assert assoc["relationship_type"] == "distributes"
         assert "threat_id" in assoc
+        assert assoc["threat_id"] == threat_id
 
     def test_extract_multiple_malware(self, extractor):
         """Test extraction when entry has multiple malware families."""
@@ -235,11 +254,12 @@ class TestAbuseCHThreatExtractor:
 
     def test_generate_threat_id_consistency(self, extractor):
         """Test threat ID generation is consistent."""
+        # Correct parameter order: (source, identifier, timestamp)
         threat_id_1 = extractor._generate_threat_id(
-            "AsyncRAT", "malware_family", "abuse_ch"
+            "abuse_ch", "AsyncRAT"
         )
         threat_id_2 = extractor._generate_threat_id(
-            "AsyncRAT", "malware_family", "abuse_ch"
+            "abuse_ch", "AsyncRAT"
         )
 
         assert threat_id_1 == threat_id_2

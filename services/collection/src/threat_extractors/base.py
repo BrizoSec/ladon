@@ -1,7 +1,10 @@
 """Base threat extractor interface."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class ThreatExtractor(ABC):
