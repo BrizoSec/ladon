@@ -40,6 +40,8 @@ services:
       PUBSUB_PROJECT_ID: ${GCP_PROJECT_ID}
       PUBSUB_RAW_IOC_EVENTS_TOPIC: raw-ioc-events
       PUBSUB_RAW_ACTIVITY_EVENTS_TOPIC: raw-activity-events
+      PUBSUB_RAW_THREAT_EVENTS_TOPIC: raw-threat-events
+      PUBSUB_NORMALIZED_THREAT_EVENTS_TOPIC: normalized-threat-events
 
       # GCP credentials
       GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-key.json

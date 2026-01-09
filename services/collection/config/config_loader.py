@@ -75,6 +75,14 @@ def build_pubsub_config(config_data: Dict) -> PubSubConfig:
             "PUBSUB_RAW_ACTIVITY_EVENTS_TOPIC",
             pubsub_data.get("raw_activity_events_topic", "raw-activity-events"),
         ),
+        raw_threat_events_topic=os.getenv(
+            "PUBSUB_RAW_THREAT_EVENTS_TOPIC",
+            pubsub_data.get("raw_threat_events_topic", "raw-threat-events"),
+        ),
+        normalized_threat_events_topic=os.getenv(
+            "PUBSUB_NORMALIZED_THREAT_EVENTS_TOPIC",
+            pubsub_data.get("normalized_threat_events_topic", "normalized-threat-events"),
+        ),
         max_messages_per_batch=int(
             os.getenv(
                 "PUBSUB_MAX_MESSAGES_PER_BATCH",

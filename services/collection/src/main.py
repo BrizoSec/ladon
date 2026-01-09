@@ -110,6 +110,12 @@ def load_config() -> CollectionConfig:
         raw_activity_events_topic=os.getenv(
             "PUBSUB_RAW_ACTIVITY_EVENTS_TOPIC", "raw-activity-events"
         ),
+        raw_threat_events_topic=os.getenv(
+            "PUBSUB_RAW_THREAT_EVENTS_TOPIC", "raw-threat-events"
+        ),
+        normalized_threat_events_topic=os.getenv(
+            "PUBSUB_NORMALIZED_THREAT_EVENTS_TOPIC", "normalized-threat-events"
+        ),
     )
 
     config = CollectionConfig(

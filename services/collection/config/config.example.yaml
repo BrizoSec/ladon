@@ -26,6 +26,8 @@ pubsub:
   project_id: ladon-production
   raw_ioc_events_topic: raw-ioc-events
   raw_activity_events_topic: raw-activity-events
+  raw_threat_events_topic: raw-threat-events
+  normalized_threat_events_topic: normalized-threat-events
   max_messages_per_batch: 1000
   max_batch_size_bytes: 10000000
   timeout_seconds: 10.0

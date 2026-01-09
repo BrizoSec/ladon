@@ -174,6 +174,8 @@ class PubSubConfig(BaseSettings):
     # Topic names
     raw_ioc_events_topic: str = "raw-ioc-events"
     raw_activity_events_topic: str = "raw-activity-events"
+    raw_threat_events_topic: str = "raw-threat-events"
+    normalized_threat_events_topic: str = "normalized-threat-events"
 
     # Publishing settings
     max_messages_per_batch: int = 1000
