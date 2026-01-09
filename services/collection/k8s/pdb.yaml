@@ -1,0 +1,27 @@
+---
+# =============================================================================
+# PodDisruptionBudget for Collection Service
+# =============================================================================
+# Ensures high availability during voluntary disruptions (node drains, upgrades)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: collection-service-pdb
+  namespace: ladon
+  labels:
+    app: collection-service
+    component: data-ingestion
+spec:
+  # At least 1 pod must remain available during disruptions
+  minAvailable: 1
+
+  # Alternative: Allow at most 1 pod to be unavailable
+  # maxUnavailable: 1
+
+  selector:
+    matchLabels:
+      app: collection-service
+      component: data-ingestion
+
+  # Unhealthy pod eviction policy (for Kubernetes 1.26+)
+  unhealthyPodEvictionPolicy: IfHealthyBudget

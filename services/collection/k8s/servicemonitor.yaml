@@ -1,0 +1,50 @@
+---
+# =============================================================================
+# ServiceMonitor for Prometheus Operator
+# =============================================================================
+# Configures Prometheus to scrape metrics from Collection Service
+# Requires: Prometheus Operator installed in the cluster
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: collection-service
+  namespace: ladon
+  labels:
+    app: collection-service
+    component: data-ingestion
+    prometheus: kube-prometheus  # Must match Prometheus selector
+spec:
+  selector:
+    matchLabels:
+      app: collection-service
+
+  namespaceSelector:
+    matchNames:
+      - ladon
+
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      scheme: http
+
+      # Relabeling rules
+      relabelings:
+        # Add namespace label
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+
+        # Add pod label
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+
+        # Add service label
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+
+      # Metric relabeling (optional - rename/drop metrics)
+      # metricRelabelings:
+      #   - sourceLabels: [__name__]
+      #     regex: 'go_.*'
+      #     action: drop  # Drop Go runtime metrics if not needed

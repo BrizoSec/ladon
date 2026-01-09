@@ -1,0 +1,41 @@
+---
+# Production environment patches for Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collection-service
+spec:
+  replicas: 3  # Higher availability
+  template:
+    spec:
+      # Production node affinity - prefer dedicated node pool
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: workload-type
+                    operator: In
+                    values:
+                      - data-processing
+
+      containers:
+        - name: collection-service
+          # Production resource requests
+          resources:
+            requests:
+              cpu: 1500m
+              memory: 3Gi
+            limits:
+              cpu: 2500m
+              memory: 5Gi
+
+          # Production-specific environment variables
+          env:
+            - name: COLLECTION_ENVIRONMENT
+              value: "production"
+            - name: COLLECTION_LOG_LEVEL
+              value: "INFO"
+            - name: COLLECTION_MAX_CONCURRENT_COLLECTORS
+              value: "15"

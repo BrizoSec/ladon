@@ -1,0 +1,92 @@
+---
+# =============================================================================
+# HorizontalPodAutoscaler for Collection Service
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: collection-service-hpa
+  namespace: ladon
+  labels:
+    app: collection-service
+    component: data-ingestion
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: collection-service
+
+  # Scaling boundaries
+  minReplicas: 2
+  maxReplicas: 10
+
+  # Scaling behavior
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+        - type: Percent
+          value: 50  # Scale down by max 50% at a time
+          periodSeconds: 60
+        - type: Pods
+          value: 2  # Or remove max 2 pods at a time
+          periodSeconds: 60
+      selectPolicy: Min  # Use the policy that scales down least
+
+    scaleUp:
+      stabilizationWindowSeconds: 60  # Wait 1 minute before scaling up
+      policies:
+        - type: Percent
+          value: 100  # Scale up by max 100% at a time
+          periodSeconds: 60
+        - type: Pods
+          value: 4  # Or add max 4 pods at a time
+          periodSeconds: 60
+      selectPolicy: Max  # Use the policy that scales up most
+
+  # Metrics to use for autoscaling
+  metrics:
+    # CPU-based scaling
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70  # Scale when CPU > 70%
+
+    # Memory-based scaling
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80  # Scale when memory > 80%
+
+    # Custom metrics (if using custom metrics adapter)
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: collection_events_per_second
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "1000"  # Scale when processing > 1000 events/sec
+
+    # - type: Pods
+    #   pods:
+    #     metric:
+    #       name: watermark_lag_seconds
+    #     target:
+    #       type: AverageValue
+    #       averageValue: "300"  # Scale when watermark lag > 5 minutes
+
+    # External metrics (if using external metrics provider like Datadog/New Relic)
+    # - type: External
+    #   external:
+    #     metric:
+    #       name: pubsub_subscription_num_undelivered_messages
+    #       selector:
+    #         matchLabels:
+    #           subscription: "normalization-ioc-sub"
+    #     target:
+    #       type: Value
+    #       value: "10000"  # Scale when backlog > 10k messages
