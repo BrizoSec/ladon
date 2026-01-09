@@ -12,6 +12,7 @@ class SourceType(str, Enum):
 
     IOC_FEED = "ioc_feed"
     ACTIVITY_LOG = "activity_log"
+    THREAT_INTEL = "threat_intel"
 
 
 class PubSubConfig(BaseSettings):
@@ -22,18 +23,22 @@ class PubSubConfig(BaseSettings):
     # Input topics (raw events)
     raw_ioc_events_topic: str = "raw-ioc-events"
     raw_activity_events_topic: str = "raw-activity-events"
+    raw_threat_events_topic: str = "raw-threat-events"
 
     # Output topics (normalized events)
     normalized_ioc_events_topic: str = "normalized-ioc-events"
     normalized_activity_events_topic: str = "normalized-activity-events"
+    normalized_threat_events_topic: str = "normalized-threat-events"
 
     # Dead letter topics
     dlq_ioc_events_topic: str = "dlq-ioc-events"
     dlq_activity_events_topic: str = "dlq-activity-events"
+    dlq_threat_events_topic: str = "dlq-threat-events"
 
     # Subscriptions
     ioc_subscription: str = "normalization-ioc-sub"
     activity_subscription: str = "normalization-activity-sub"
+    threat_subscription: str = "normalization-threat-sub"
 
     # Processing settings
     max_messages_per_pull: int = Field(100, description="Max messages per pull")

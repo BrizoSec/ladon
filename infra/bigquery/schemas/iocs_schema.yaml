@@ -1,0 +1,149 @@
+# BigQuery Schema: iocs table
+# Table stores Indicators of Compromise (IOCs) from multiple threat intelligence feeds
+
+name: iocs
+dataset: threat_xdr
+partition_field: last_seen
+partition_type: DAY
+clustering_fields:
+  - ioc_type
+  - threat_type
+  - source
+  - is_active
+
+schema:
+  - name: ioc_id
+    type: STRING
+    mode: REQUIRED
+    description: Unique identifier for the IOC (hash of value+type+source)
+
+  - name: ioc_value
+    type: STRING
+    mode: REQUIRED
+    description: The IOC value (IP, domain, hash, URL, etc.)
+
+  - name: ioc_type
+    type: STRING
+    mode: REQUIRED
+    description: "Type: ipv4, ipv6, domain, url, hash_md5, hash_sha256, email, etc."
+
+  - name: threat_type
+    type: STRING
+    mode: REQUIRED
+    description: "Threat type: malware, c2, phishing, ransomware, exploit, etc."
+
+  - name: threat_family
+    type: STRING
+    mode: NULLABLE
+    description: Associated malware family or threat group
+
+  - name: confidence
+    type: FLOAT64
+    mode: REQUIRED
+    description: Confidence score (0.0-1.0)
+
+  - name: severity
+    type: STRING
+    mode: NULLABLE
+    description: "Severity level: low, medium, high, critical"
+
+  - name: source
+    type: STRING
+    mode: REQUIRED
+    description: "Intelligence source: alienvault_otx, abuse_ch, misp, custom, etc."
+
+  - name: source_reputation
+    type: FLOAT64
+    mode: NULLABLE
+    description: Reputation score of the source (0.0-1.0)
+
+  - name: first_seen
+    type: TIMESTAMP
+    mode: REQUIRED
+    description: First time this IOC was observed
+
+  - name: last_seen
+    type: TIMESTAMP
+    mode: REQUIRED
+    description: Most recent observation of this IOC
+
+  - name: expiration_date
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: When this IOC expires or is no longer valid
+
+  - name: enrichment
+    type: STRING
+    mode: NULLABLE
+    description: JSON object containing enrichment data from VirusTotal, PassiveTotal, etc.
+
+  - name: description
+    type: STRING
+    mode: NULLABLE
+    description: Description of the IOC and associated threat
+
+  - name: tags
+    type: STRING
+    mode: REPEATED
+    description: Tags for categorization and filtering
+
+  - name: reference_urls
+    type: STRING
+    mode: REPEATED
+    description: External references and reports
+
+  - name: metadata
+    type: STRING
+    mode: NULLABLE
+    description: JSON object with additional custom metadata
+
+  - name: is_cached
+    type: BOOL
+    mode: NULLABLE
+    description: Whether this IOC is currently cached in Redis
+    default_value_expression: "FALSE"
+
+  - name: cache_ttl_hours
+    type: INT64
+    mode: NULLABLE
+    description: TTL for Redis cache in hours
+
+  - name: is_active
+    type: BOOL
+    mode: NULLABLE
+    description: Whether IOC is currently active/relevant
+    default_value_expression: "TRUE"
+
+  - name: false_positive
+    type: BOOL
+    mode: NULLABLE
+    description: Marked as false positive
+    default_value_expression: "FALSE"
+
+  - name: whitelist_reason
+    type: STRING
+    mode: NULLABLE
+    description: Reason for whitelisting if applicable
+
+  - name: detection_count
+    type: INT64
+    mode: NULLABLE
+    description: Number of times this IOC triggered a detection
+    default_value_expression: "0"
+
+  - name: last_detection_time
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: Last time this IOC triggered a detection
+
+  - name: created_at
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: Record creation timestamp
+    default_value_expression: CURRENT_TIMESTAMP()
+
+  - name: updated_at
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: Last update timestamp
+    default_value_expression: CURRENT_TIMESTAMP()

@@ -1,0 +1,394 @@
+# =============================================================================
+# LADON Collection Service - Configuration Example
+# =============================================================================
+#
+# This file demonstrates how to configure all data sources for the Collection
+# Service. Copy this to config.yaml and update with your actual credentials.
+#
+# Usage:
+#   1. Copy this file: cp config.example.yaml config.yaml
+#   2. Update API keys and connection details
+#   3. Enable/disable sources as needed
+#   4. Set COLLECTION_CONFIG_FILE=config.yaml environment variable
+#
+# =============================================================================
+
+# Service-level settings
+service:
+  environment: production  # development, staging, production
+  log_level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  max_concurrent_collectors: 10
+  health_check_interval_seconds: 60
+  storage_service_url: http://storage-service:8080
+
+# Pub/Sub configuration
+pubsub:
+  project_id: ladon-production
+  raw_ioc_events_topic: raw-ioc-events
+  raw_activity_events_topic: raw-activity-events
+  raw_threat_events_topic: raw-threat-events
+  normalized_threat_events_topic: normalized-threat-events
+  max_messages_per_batch: 1000
+  max_batch_size_bytes: 10000000
+  timeout_seconds: 10.0
+
+# =============================================================================
+# IOC FEEDS - Threat Intelligence Sources
+# =============================================================================
+
+ioc_feeds:
+  # ---------------------------------------------------------------------------
+  # AlienVault OTX - Open Threat Exchange
+  # ---------------------------------------------------------------------------
+  # Free tier: 10,000 pulses/day
+  # API: https://otx.alienvault.com/api
+  # Docs: https://otx.alienvault.com/api
+  - id: alienvault_otx_primary
+    name: "AlienVault OTX - Primary Feed"
+    source_type: ioc_feed
+    collector_type: alienvault_otx
+    enabled: true
+
+    # Schedule (runs every 30 minutes)
+    collection_interval_minutes: 30
+
+    # AlienVault OTX credentials
+    api_key: YOUR_ALIENVAULT_API_KEY_HERE
+    api_endpoint: https://otx.alienvault.com/api/v1
+
+    # Collection parameters
+    pulses_limit: 100  # Max pulses per collection
+
+    # Performance settings
+    batch_size: 1000
+    max_concurrent_requests: 3
+    timeout_seconds: 30
+    max_retries: 3
+
+    # Pub/Sub destination
+    pubsub_topic: raw-ioc-events
+
+    # Query filters (optional)
+    query_config:
+      modified_since_days: 7  # Only collect pulses modified in last 7 days
+      subscribed_only: false  # Include all public pulses
+      types:  # Filter by IOC types
+        - domain
+        - IPv4
+        - URL
+        - FileHash-SHA256
+
+  # ---------------------------------------------------------------------------
+  # abuse.ch - Malware Threat Intelligence
+  # ---------------------------------------------------------------------------
+  # Multiple feeds: ThreatFox, URLhaus, MalwareBazaar
+  # Free API, no key required for basic usage
+  # Docs: https://threatfox.abuse.ch/api/
+  - id: abuse_ch_threatfox
+    name: "abuse.ch - ThreatFox + URLhaus"
+    source_type: ioc_feed
+    collector_type: abuse_ch
+    enabled: true
+
+    # Schedule (runs every 15 minutes - high update frequency)
+    collection_interval_minutes: 15
+
+    # abuse.ch API endpoints
+    threatfox_url: https://threatfox-api.abuse.ch/api/v1/
+    urlhaus_url: https://urlhaus-api.abuse.ch/v1/
+    malware_bazaar_url: https://mb-api.abuse.ch/api/v1/
+
+    # API key (optional, increases rate limits)
+    api_key: null  # Set to your API key if you have one
+
+    # Performance settings
+    batch_size: 5000
+    max_concurrent_requests: 2
+    timeout_seconds: 30
+
+    # Pub/Sub destination
+    pubsub_topic: raw-ioc-events
+
+    # Query filters
+    query_config:
+      threatfox_days: 3  # Collect ThreatFox IOCs from last 3 days
+      urlhaus_days: 3  # Collect URLhaus URLs from last 3 days
+      confidence_threshold: 50  # Only IOCs with confidence >= 50
+
+  # ---------------------------------------------------------------------------
+  # MISP - Malware Information Sharing Platform
+  # ---------------------------------------------------------------------------
+  # Enterprise threat intelligence platform
+  # Requires: Self-hosted or managed MISP instance
+  # Docs: https://www.misp-project.org/openapi/
+  - id: misp_enterprise
+    name: "MISP - Enterprise Instance"
+    source_type: ioc_feed
+    collector_type: misp
+    enabled: false  # Disabled by default - requires MISP instance
+
+    # Schedule (runs every 30 minutes)
+    collection_interval_minutes: 30
+
+    # MISP connection details
+    url: https://misp.your-company.com
+    api_key: YOUR_MISP_API_KEY_HERE
+    verify_ssl: true
+
+    # MISP filters
+    published: true  # Only published events
+    to_ids: true  # Only IOCs marked for detection
+    tags:  # Filter by tags
+      - tlp:white
+      - tlp:green
+      # - type:APT  # Uncomment to filter by threat type
+
+    # Performance settings
+    batch_size: 1000
+    max_concurrent_requests: 3
+    timeout_seconds: 60  # MISP queries can be slow
+
+    # Pub/Sub destination
+    pubsub_topic: raw-ioc-events
+
+    # Query config
+    query_config:
+      event_limit: 100
+      attribute_limit: 10000
+      days_back: 30  # Collect events from last 30 days
+
+# =============================================================================
+# ACTIVITY LOGS - Organizational Data Sources
+# =============================================================================
+
+activity_logs:
+  # ---------------------------------------------------------------------------
+  # Trino - Proxy Logs (Zscaler, Cisco Umbrella, etc.)
+  # ---------------------------------------------------------------------------
+  # High-volume log source (millions of events/day)
+  # Requires: Trino cluster with proxy logs
+  - id: trino_proxy_logs
+    name: "Trino - Proxy Logs (HTTP/HTTPS)"
+    source_type: activity_log
+    collector_type: trino
+    enabled: true
+
+    # Schedule (runs every 3 minutes - near real-time)
+    collection_interval_minutes: 3
+
+    # Trino connection
+    host: trino.data-platform.your-company.com
+    port: 8080
+    catalog: security_logs
+    schema: proxy
+    user: ladon_service
+
+    # Table and query configuration
+    table: http_requests
+    timestamp_column: request_timestamp
+    order_by_column: request_timestamp
+
+    # Performance settings (large batches for high volume)
+    batch_size: 100000  # 100K events per batch
+    max_concurrent_requests: 1  # Single query at a time
+    timeout_seconds: 300  # 5 minutes for large queries
+
+    # Pub/Sub destination
+    pubsub_topic: raw-activity-events
+
+    # Query customization (optional SQL filters)
+    query_config:
+      # Additional WHERE clauses (appended to watermark filter)
+      where_clause: "action IN ('allowed', 'blocked') AND bytes_transferred > 0"
+
+      # Column mappings for normalization
+      columns:
+        timestamp: request_timestamp
+        src_ip: client_ip
+        dst_ip: server_ip
+        domain: destination_domain
+        url: full_url
+        user: username
+        bytes_sent: bytes_uploaded
+        bytes_received: bytes_downloaded
+
+  # ---------------------------------------------------------------------------
+  # Trino - DNS Logs (Infoblox, DNS servers)
+  # ---------------------------------------------------------------------------
+  - id: trino_dns_logs
+    name: "Trino - DNS Query Logs"
+    source_type: activity_log
+    collector_type: trino
+    enabled: true
+
+    # Schedule (runs every 3 minutes)
+    collection_interval_minutes: 3
+
+    # Trino connection (same cluster, different schema)
+    host: trino.data-platform.your-company.com
+    port: 8080
+    catalog: security_logs
+    schema: dns
+    user: ladon_service
+
+    # Table configuration
+    table: dns_queries
+    timestamp_column: query_timestamp
+    order_by_column: query_timestamp
+
+    # Performance settings
+    batch_size: 150000  # DNS logs are high volume
+    max_concurrent_requests: 1
+    timeout_seconds: 300
+
+    # Pub/Sub destination
+    pubsub_topic: raw-activity-events
+
+    # Query config
+    query_config:
+      where_clause: "response_code = 'NOERROR'"  # Only successful queries
+      columns:
+        timestamp: query_timestamp
+        src_ip: client_ip
+        domain: query_domain
+        response_ip: answer_ip
+
+  # ---------------------------------------------------------------------------
+  # BigQuery - Sinkhole Logs
+  # ---------------------------------------------------------------------------
+  # Lower volume, high-value logs (known malicious traffic)
+  - id: bigquery_sinkhole
+    name: "BigQuery - DNS Sinkhole Logs"
+    source_type: activity_log
+    collector_type: bigquery
+    enabled: true
+
+    # Schedule (runs every 3 minutes)
+    collection_interval_minutes: 3
+
+    # BigQuery configuration
+    project_id: your-gcp-project
+    dataset: security_logs
+    table: sinkhole_queries
+
+    # Query configuration
+    timestamp_column: timestamp
+    partition_field: timestamp  # Use partitioned table for cost savings
+
+    # Performance settings
+    batch_size: 10000  # Lower volume
+    max_concurrent_requests: 1
+    timeout_seconds: 120
+
+    # Pub/Sub destination
+    pubsub_topic: raw-activity-events
+
+    # Query config
+    query_config:
+      # Partition filter to reduce costs
+      partition_filter_days: 1
+
+      # Additional filters
+      where_clause: "threat_category IN ('malware', 'c2', 'phishing')"
+
+  # ---------------------------------------------------------------------------
+  # BigQuery - Microsoft Defender for Endpoint (MDE)
+  # ---------------------------------------------------------------------------
+  - id: bigquery_mde_alerts
+    name: "BigQuery - MDE Alerts & Events"
+    source_type: activity_log
+    collector_type: bigquery
+    enabled: false  # Disabled - requires MDE integration
+
+    # Schedule (runs every 5 minutes)
+    collection_interval_minutes: 5
+
+    # BigQuery configuration
+    project_id: your-gcp-project
+    dataset: endpoint_security
+    table: mde_alerts
+
+    # Query configuration
+    timestamp_column: alert_time
+    partition_field: alert_time
+
+    # Performance settings
+    batch_size: 5000
+    max_concurrent_requests: 1
+    timeout_seconds: 120
+
+    # Pub/Sub destination
+    pubsub_topic: raw-activity-events
+
+    # Query config
+    query_config:
+      partition_filter_days: 1
+      where_clause: "severity IN ('High', 'Medium')"
+
+  # ---------------------------------------------------------------------------
+  # BigQuery - CrowdStrike Falcon
+  # ---------------------------------------------------------------------------
+  - id: bigquery_crowdstrike
+    name: "BigQuery - CrowdStrike Detections"
+    source_type: activity_log
+    collector_type: bigquery
+    enabled: false  # Disabled - requires CrowdStrike integration
+
+    # Schedule
+    collection_interval_minutes: 5
+
+    # BigQuery configuration
+    project_id: your-gcp-project
+    dataset: endpoint_security
+    table: crowdstrike_detections
+
+    # Query configuration
+    timestamp_column: detection_time
+    partition_field: detection_time
+
+    # Performance settings
+    batch_size: 5000
+    timeout_seconds: 120
+
+    # Pub/Sub destination
+    pubsub_topic: raw-activity-events
+
+# =============================================================================
+# ADVANCED CONFIGURATION
+# =============================================================================
+
+# Performance tuning
+performance:
+  # Global limits
+  max_memory_mb: 4096
+  max_events_in_memory: 100000
+
+  # Rate limiting (per collector)
+  rate_limit_events_per_second: 10000
+
+  # Watermark persistence
+  watermark_update_interval_seconds: 30
+  watermark_persist_on_shutdown: true
+
+# Monitoring
+monitoring:
+  # Metrics export
+  prometheus_enabled: true
+  prometheus_port: 9090
+
+  # Health checks
+  health_check_timeout_seconds: 5
+  unhealthy_threshold_failures: 3
+
+# Security
+security:
+  # API key encryption (optional)
+  encrypt_secrets_at_rest: false
+  secret_key_path: /secrets/collection-service-key
+
+  # TLS for external connections
+  verify_ssl_default: true
+
+  # Audit logging
+  audit_log_enabled: true
+  audit_log_path: /var/log/ladon/audit.log

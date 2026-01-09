@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from ladon_models import Detection, NormalizedActivity, NormalizedIOC
+from ladon_models import Detection, NormalizedActivity, NormalizedIOC, Threat, ThreatIOCAssociation
 
 
 class IOCRepository(ABC):
@@ -371,5 +371,133 @@ class MetadataRepository(ABC):
 
         Returns:
             True if stored successfully
+        """
+        pass
+
+
+class ThreatRepository(ABC):
+    """Abstract repository for threat actor/campaign storage and retrieval."""
+
+    @abstractmethod
+    async def store_threat(self, threat: Threat) -> bool:
+        """
+        Store a single threat.
+
+        Args:
+            threat: Threat to store
+
+        Returns:
+            True if successful, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def store_threats_batch(self, threats: List[Threat]) -> Dict[str, int]:
+        """
+        Store multiple threats in a batch operation.
+
+        Args:
+            threats: List of threats to store
+
+        Returns:
+            Dictionary with counts: {"success": N, "failed": M}
+        """
+        pass
+
+    @abstractmethod
+    async def get_threat(self, threat_id: str) -> Optional[Threat]:
+        """
+        Retrieve a single threat by ID.
+
+        Args:
+            threat_id: The threat ID to search for
+
+        Returns:
+            Threat if found, None otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def search_threats(
+        self,
+        category: Optional[str] = None,
+        threat_type: Optional[str] = None,
+        is_active: Optional[bool] = None,
+        min_confidence: Optional[float] = None,
+        limit: int = 100,
+    ) -> List[Threat]:
+        """
+        Search for threats matching criteria.
+
+        Args:
+            category: Filter by category (actor, campaign, malware_family)
+            threat_type: Filter by threat type
+            is_active: Filter by active status
+            min_confidence: Minimum confidence score
+            limit: Maximum number of results
+
+        Returns:
+            List of matching threats
+        """
+        pass
+
+    @abstractmethod
+    async def associate_ioc_with_threat(
+        self, association: ThreatIOCAssociation
+    ) -> bool:
+        """
+        Associate an IOC with a threat.
+
+        Args:
+            association: ThreatIOCAssociation model
+
+        Returns:
+            True if successful, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def get_threats_for_ioc(
+        self, ioc_value: str, ioc_type: str
+    ) -> List[Threat]:
+        """
+        Get all threats associated with an IOC.
+
+        Args:
+            ioc_value: The IOC value
+            ioc_type: The IOC type
+
+        Returns:
+            List of associated threats
+        """
+        pass
+
+    @abstractmethod
+    async def get_iocs_for_threat(
+        self, threat_id: str, limit: int = 100
+    ) -> List[Dict]:
+        """
+        Get all IOCs associated with a threat.
+
+        Args:
+            threat_id: The threat ID
+            limit: Maximum number of IOCs to return
+
+        Returns:
+            List of IOC associations
+        """
+        pass
+
+    @abstractmethod
+    async def update_threat(self, threat_id: str, updates: Dict) -> bool:
+        """
+        Update a threat's fields.
+
+        Args:
+            threat_id: The threat ID to update
+            updates: Dictionary of fields to update
+
+        Returns:
+            True if updated, False if not found
         """
         pass

@@ -59,6 +59,100 @@ def sample_activity_data():
 
 
 @pytest.fixture
+def sample_alienvault_pulse():
+    """Sample AlienVault OTX pulse for threat extraction testing."""
+    return {
+        "id": "test_pulse_123",
+        "name": "APT29 Campaign - 2024",
+        "description": "APT29 phishing campaign targeting government agencies",
+        "author_name": "analyst@otx.alienvault.com",
+        "created": "2024-01-01T00:00:00",
+        "modified": "2024-01-02T00:00:00",
+        "adversary": "APT29",
+        "malware_families": ["Cobalt Strike", "MiniDuke"],
+        "attack_ids": ["T1566.001", "T1059.001", "T1071.001"],
+        "tags": ["apt", "russia", "government", "phishing"],
+        "targeted_countries": ["US", "UK", "EU"],
+        "industries": ["government", "defense"],
+        "references": ["https://example.com/report1"],
+        "indicators": [
+            {
+                "indicator": "evil.com",
+                "type": "domain",
+                "created": "2024-01-01T00:00:00",
+            },
+            {
+                "indicator": "192.0.2.1",
+                "type": "IPv4",
+                "created": "2024-01-01T00:00:00",
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def sample_abusech_entry():
+    """Sample abuse.ch entry for threat extraction testing."""
+    return {
+        "id": "12345",
+        "dateadded": "2024-01-01 00:00:00 UTC",
+        "ioc": "evil.com",
+        "threat_type": "malware_download",
+        "ioc_type": "domain",
+        "malware": "win.asyncrat",
+        "malware_printable": "AsyncRAT",
+        "malware_alias": "AsyncRAT",
+        "malware_malpedia": "https://malpedia.caad.fkie.fraunhofer.de/details/win.asyncrat",
+        "confidence_level": 90,
+        "tags": ["rat", "trojan", "windows"],
+        "reference": "https://threatfox.abuse.ch/ioc/12345/",
+    }
+
+
+@pytest.fixture
+def sample_misp_event():
+    """Sample MISP event for threat extraction testing."""
+    return {
+        "Event": {
+            "id": "123",
+            "info": "APT29 Infrastructure",
+            "date": "2024-01-01",
+            "threat_level_id": "1",
+            "analysis": "2",
+            "Attribute": [
+                {
+                    "type": "domain",
+                    "value": "evil.com",
+                    "category": "Network activity",
+                    "to_ids": True,
+                },
+            ],
+            "Tag": [
+                {"name": "apt:APT29"},
+                {"name": "misp-galaxy:threat-actor=\"APT29\""},
+                {"name": "misp-galaxy:mitre-attack-pattern=\"Phishing - T1566\""},
+            ],
+            "Galaxy": [
+                {
+                    "name": "Threat Actor",
+                    "type": "threat-actor",
+                    "GalaxyCluster": [
+                        {
+                            "value": "APT29",
+                            "description": "APT29 is a threat group",
+                            "meta": {
+                                "synonyms": ["Cozy Bear", "The Dukes"],
+                                "country": ["RU"],
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+
+@pytest.fixture
 def alienvault_otx_config():
     """AlienVault OTX configuration for testing."""
     import sys

@@ -1,0 +1,244 @@
+# =============================================================================
+# LADON Collection Service - Docker Compose Example
+# =============================================================================
+#
+# This docker-compose file demonstrates how to run the Collection Service
+# with all its dependencies in a containerized environment.
+#
+# Usage:
+#   1. Copy: cp docker-compose.example.yml docker-compose.yml
+#   2. Edit environment variables and volumes
+#   3. Run: docker-compose up -d
+#
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # Collection Service - Main application
+  # ---------------------------------------------------------------------------
+  collection-service:
+    image: ladon/collection-service:latest
+    container_name: ladon-collection
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"  # API port
+      - "9090:9090"  # Prometheus metrics
+    environment:
+      # Service configuration
+      COLLECTION_ENVIRONMENT: production
+      COLLECTION_LOG_LEVEL: INFO
+      COLLECTION_CONFIG_FILE: /app/config/config.yaml
+
+      # Storage Service connection
+      COLLECTION_STORAGE_SERVICE_URL: http://storage-service:8080
+
+      # Pub/Sub configuration
+      PUBSUB_PROJECT_ID: ${GCP_PROJECT_ID}
+      PUBSUB_RAW_IOC_EVENTS_TOPIC: raw-ioc-events
+      PUBSUB_RAW_ACTIVITY_EVENTS_TOPIC: raw-activity-events
+      PUBSUB_RAW_THREAT_EVENTS_TOPIC: raw-threat-events
+      PUBSUB_NORMALIZED_THREAT_EVENTS_TOPIC: normalized-threat-events
+
+      # GCP credentials
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-key.json
+
+      # AlienVault OTX
+      ALIENVAULT_API_KEY: ${ALIENVAULT_API_KEY}
+
+      # MISP (optional)
+      MISP_URL: ${MISP_URL}
+      MISP_API_KEY: ${MISP_API_KEY}
+
+      # Trino (optional)
+      TRINO_PROXY_HOST: ${TRINO_HOST}
+      TRINO_PROXY_CATALOG: security_logs
+      TRINO_PROXY_SCHEMA: proxy
+
+      # Performance
+      COLLECTION_MAX_CONCURRENT_COLLECTORS: 10
+
+    volumes:
+      # Configuration file
+      - ./config/config.yaml:/app/config/config.yaml:ro
+
+      # GCP service account key (if not using workload identity)
+      - ${GCP_KEY_PATH}:/secrets/gcp-key.json:ro
+
+      # Logs
+      - ./logs:/var/log/ladon
+
+    depends_on:
+      - storage-service
+      - pubsub-emulator  # Only for local development
+
+    networks:
+      - ladon-network
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+  # ---------------------------------------------------------------------------
+  # Storage Service - For watermark persistence
+  # ---------------------------------------------------------------------------
+  storage-service:
+    image: ladon/storage-service:latest
+    container_name: ladon-storage
+    ports:
+      - "8080:8080"
+    environment:
+      STORAGE_ENVIRONMENT: production
+      BIGQUERY_PROJECT_ID: ${GCP_PROJECT_ID}
+      BIGQUERY_DATASET: threat_xdr
+      GOOGLE_APPLICATION_CREDENTIALS: /secrets/gcp-key.json
+    volumes:
+      - ${GCP_KEY_PATH}:/secrets/gcp-key.json:ro
+    networks:
+      - ladon-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Pub/Sub Emulator - For local development only
+  # ---------------------------------------------------------------------------
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    container_name: ladon-pubsub-emulator
+    ports:
+      - "8085:8085"
+    command: gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
+    networks:
+      - ladon-network
+    profiles:
+      - development  # Only start in dev mode: docker-compose --profile development up
+
+  # ---------------------------------------------------------------------------
+  # Prometheus - Metrics collection (optional)
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: ladon-prometheus
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - ladon-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  # ---------------------------------------------------------------------------
+  # Grafana - Metrics visualization (optional)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: ladon-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - ladon-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  ladon-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# =============================================================================
+# Usage Examples
+# =============================================================================
+#
+# Start all services:
+#   docker-compose up -d
+#
+# Start with monitoring:
+#   docker-compose --profile monitoring up -d
+#
+# Start in development mode (with Pub/Sub emulator):
+#   docker-compose --profile development up -d
+#
+# View logs:
+#   docker-compose logs -f collection-service
+#
+# Restart a service:
+#   docker-compose restart collection-service
+#
+# Stop all services:
+#   docker-compose down
+#
+# Stop and remove volumes:
+#   docker-compose down -v
+#
+# Scale collection service:
+#   docker-compose up -d --scale collection-service=3
+#
+# =============================================================================
+# Environment Variables (.env file)
+# =============================================================================
+#
+# Create a .env file in the same directory:
+#
+# GCP_PROJECT_ID=your-gcp-project
+# GCP_KEY_PATH=/path/to/gcp-key.json
+# ALIENVAULT_API_KEY=your_api_key
+# MISP_URL=https://misp.company.com
+# MISP_API_KEY=your_misp_key
+# TRINO_HOST=trino.company.com
+# GRAFANA_PASSWORD=secure_password
+#
+# =============================================================================

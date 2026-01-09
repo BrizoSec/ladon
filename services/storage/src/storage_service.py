@@ -10,13 +10,14 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from ladon_models import Detection, NormalizedActivity, NormalizedIOC
+from ladon_models import Detection, NormalizedActivity, NormalizedIOC, Threat, ThreatIOCAssociation
 
 from .config import StorageConfig
 from .repositories.bigquery_repository import (
     BigQueryActivityRepository,
     BigQueryDetectionRepository,
     BigQueryIOCRepository,
+    BigQueryThreatRepository,
 )
 from .repositories.firestore_repository import FirestoreMetadataRepository
 from .repositories.redis_repository import RedisIOCCache
@@ -46,11 +47,13 @@ class StorageService:
             self.ioc_repository = BigQueryIOCRepository(config.bigquery)
             self.activity_repository = BigQueryActivityRepository(config.bigquery)
             self.detection_repository = BigQueryDetectionRepository(config.bigquery)
+            self.threat_repository = BigQueryThreatRepository(config.bigquery)
             logger.info("BigQuery repositories initialized")
         else:
             self.ioc_repository = None
             self.activity_repository = None
             self.detection_repository = None
+            self.threat_repository = None
             logger.warning("BigQuery disabled")
 
         # Initialize Redis cache
@@ -291,6 +294,111 @@ class StorageService:
                 detection_id, status, case_id
             )
         return False
+
+    # ========================================================================
+    # Threat Operations
+    # ========================================================================
+
+    async def store_threat(self, threat: Threat) -> bool:
+        """Store a single threat in BigQuery.
+
+        Args:
+            threat: Threat to store
+
+        Returns:
+            True if successful
+        """
+        if self.threat_repository:
+            return await self.threat_repository.store_threat(threat)
+        return False
+
+    async def store_threats_batch(
+        self, threats: List[Threat]
+    ) -> Dict[str, int]:
+        """Store multiple threats in batch.
+
+        Args:
+            threats: List of threats to store
+
+        Returns:
+            Dictionary with success/failed counts
+        """
+        if self.threat_repository:
+            return await self.threat_repository.store_threats_batch(threats)
+        return {"success": 0, "failed": len(threats)}
+
+    async def get_threat(self, threat_id: str) -> Optional[Threat]:
+        """Retrieve a single threat by ID.
+
+        Args:
+            threat_id: Threat ID to lookup
+
+        Returns:
+            Threat if found, None otherwise
+        """
+        if self.threat_repository:
+            return await self.threat_repository.get_threat(threat_id)
+        return None
+
+    async def get_threats_for_ioc(
+        self, ioc_value: str, ioc_type: str
+    ) -> List[Threat]:
+        """Get all threats associated with an IOC.
+
+        Args:
+            ioc_value: IOC value
+            ioc_type: IOC type
+
+        Returns:
+            List of associated threats
+        """
+        if self.threat_repository:
+            return await self.threat_repository.get_threats_for_ioc(ioc_value, ioc_type)
+        return []
+
+    async def get_iocs_for_threat(
+        self, threat_id: str, limit: int = 100
+    ) -> List[Dict]:
+        """Get all IOCs associated with a threat.
+
+        Args:
+            threat_id: Threat ID
+            limit: Maximum number of IOCs to return
+
+        Returns:
+            List of associated IOCs
+        """
+        if self.threat_repository:
+            return await self.threat_repository.get_iocs_for_threat(threat_id, limit)
+        return []
+
+    async def associate_ioc_with_threat(
+        self, association: ThreatIOCAssociation
+    ) -> bool:
+        """Associate an IOC with a threat.
+
+        Args:
+            association: Threat-IOC association
+
+        Returns:
+            True if successful
+        """
+        if self.threat_repository:
+            return await self.threat_repository.associate_ioc_with_threat(association)
+        return False
+
+    async def search_threats(self, **kwargs) -> List[Threat]:
+        """Search for threats.
+
+        Args:
+            **kwargs: Search criteria (threat_category, threat_type, is_active, limit)
+
+        Returns:
+            List of matching threats
+        """
+        if self.threat_repository:
+            return await self.threat_repository.search_threats(**kwargs)
+        return []
 
     # ========================================================================
     # Cache Operations

@@ -1,0 +1,87 @@
+# BigQuery Schema: threat_ioc_associations table
+# Table stores many-to-many relationships between threats and IOCs
+
+name: threat_ioc_associations
+dataset: threat_xdr
+partition_field: last_seen
+partition_type: DAY
+clustering_fields:
+  - threat_id
+  - ioc_type
+  - relationship_type
+
+schema:
+  - name: threat_id
+    type: STRING
+    mode: REQUIRED
+    description: Foreign key to threats.threat_id
+
+  - name: ioc_value
+    type: STRING
+    mode: REQUIRED
+    description: The IOC value (IP, domain, hash, URL, etc.)
+
+  - name: ioc_type
+    type: STRING
+    mode: REQUIRED
+    description: "Type of IOC: ipv4, domain, url, hash_md5, hash_sha256, etc."
+
+  - name: relationship_type
+    type: STRING
+    mode: NULLABLE
+    description: "Nature of relationship: uses, attributed_to, distributes, communicates_with"
+    default_value_expression: "'uses'"
+
+  - name: confidence
+    type: FLOAT64
+    mode: NULLABLE
+    description: Confidence in this association (0.0-1.0)
+    default_value_expression: "0.5"
+
+  - name: first_seen
+    type: TIMESTAMP
+    mode: REQUIRED
+    description: First time this association was observed
+
+  - name: last_seen
+    type: TIMESTAMP
+    mode: REQUIRED
+    description: Most recent observation of this association
+
+  - name: observation_count
+    type: INT64
+    mode: NULLABLE
+    description: Number of times this association has been observed
+    default_value_expression: "1"
+
+  - name: sources
+    type: STRING
+    mode: REPEATED
+    description: Sources that reported this association
+
+  - name: reference_urls
+    type: STRING
+    mode: REPEATED
+    description: External references documenting this association
+
+  - name: notes
+    type: STRING
+    mode: NULLABLE
+    description: Additional context about this association
+
+  - name: tags
+    type: STRING
+    mode: REPEATED
+    description: Tags for categorization
+
+  - name: created_at
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: Record creation timestamp
+    default_value_expression: CURRENT_TIMESTAMP()
+
+  - name: updated_at
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: Last update timestamp
+    default_value_expression: CURRENT_TIMESTAMP()

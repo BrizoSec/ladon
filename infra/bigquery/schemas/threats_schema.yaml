@@ -1,0 +1,110 @@
+# BigQuery Schema: threats table
+# Table stores threat actors, campaigns, and malware families with MITRE ATT&CK TTPs
+
+name: threats
+dataset: threat_xdr
+partition_field: last_seen
+partition_type: DAY
+clustering_fields:
+  - threat_category
+  - threat_type
+  - is_active
+
+schema:
+  - name: threat_id
+    type: STRING
+    mode: REQUIRED
+    description: Unique identifier for the threat
+
+  - name: name
+    type: STRING
+    mode: REQUIRED
+    description: Primary threat name
+
+  - name: aliases
+    type: STRING
+    mode: REPEATED
+    description: Alternative names and identifiers
+
+  - name: threat_category
+    type: STRING
+    mode: REQUIRED
+    description: "Category: actor, campaign, malware_family, vulnerability"
+
+  - name: threat_type
+    type: STRING
+    mode: REQUIRED
+    description: "Threat type: c2, malware, phishing, ransomware, etc."
+
+  - name: description
+    type: STRING
+    mode: NULLABLE
+    description: Comprehensive threat description
+
+  - name: severity
+    type: STRING
+    mode: NULLABLE
+    description: "Severity level: low, medium, high, critical"
+
+  - name: confidence
+    type: FLOAT64
+    mode: NULLABLE
+    description: Confidence in threat intelligence (0.0-1.0)
+
+  - name: techniques
+    type: STRING
+    mode: NULLABLE
+    description: JSON array of MITRE ATT&CK techniques with full details
+
+  - name: tactics
+    type: STRING
+    mode: REPEATED
+    description: MITRE ATT&CK tactics (derived from techniques)
+
+  - name: first_seen
+    type: TIMESTAMP
+    mode: REQUIRED
+    description: First observation of this threat
+
+  - name: last_seen
+    type: TIMESTAMP
+    mode: REQUIRED
+    description: Most recent threat activity
+
+  - name: sources
+    type: STRING
+    mode: REPEATED
+    description: Intelligence sources providing this threat data
+
+  - name: reference_urls
+    type: STRING
+    mode: REPEATED
+    description: External references and threat reports
+
+  - name: tags
+    type: STRING
+    mode: REPEATED
+    description: Classification and context tags
+
+  - name: metadata
+    type: STRING
+    mode: NULLABLE
+    description: JSON object with additional custom metadata
+
+  - name: is_active
+    type: BOOL
+    mode: NULLABLE
+    description: Whether threat is currently active
+    default_value_expression: "TRUE"
+
+  - name: created_at
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: Record creation timestamp
+    default_value_expression: CURRENT_TIMESTAMP()
+
+  - name: updated_at
+    type: TIMESTAMP
+    mode: NULLABLE
+    description: Last update timestamp
+    default_value_expression: CURRENT_TIMESTAMP()
