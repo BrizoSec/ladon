@@ -46,7 +46,7 @@ class AbuseCHCollector(BaseCollector):
         if self.session is None:
             headers = {"Accept": "application/json"}
             if self.config.api_key:
-                headers["API-KEY"] = self.config.api_key
+                headers["Auth-Key"] = self.config.api_key
 
             timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
             self.session = aiohttp.ClientSession(headers=headers, timeout=timeout)
