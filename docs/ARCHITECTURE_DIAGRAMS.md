@@ -67,6 +67,7 @@ graph TB
     subgraph "Fast Path - Real-time Detection"
         DETECT[Detection Service]
         SCORE[Scoring Service]
+        RESPONSE[Response Service]
         NOTIFY[Notification Service]
     end
 
@@ -82,6 +83,12 @@ graph TB
         SLACK[Slack]
         VT[VirusTotal]
         PT[PassiveTotal]
+    end
+
+    subgraph "Response Targets"
+        FW[Firewalls<br/>Palo Alto, FortiGate]
+        EDR[EDR Platforms<br/>MDE, CrowdStrike]
+        IAM[Identity Providers<br/>AD, Azure AD, Okta]
     end
 
     %% IOC Flow
@@ -125,7 +132,11 @@ graph TB
     NORM_ACT -->|Subscribe| DETECT
     DETECT <-->|Read Hot IOCs| REDIS
     DETECT -->|Detections| SCORE
-    SCORE -->|Scored Alerts| NOTIFY
+    SCORE -->|Scored Detections| RESPONSE
+    RESPONSE -->|Block IP/Domain| FW
+    RESPONSE -->|Isolate Host, Quarantine File| EDR
+    RESPONSE -->|Disable User, Revoke Sessions| IAM
+    RESPONSE -->|Notifications| NOTIFY
     NOTIFY -->|Create Cases| SNOW
     NOTIFY -->|Alerts| SLACK
 
@@ -142,6 +153,7 @@ graph TB
     style CS fill:#e1f5ff
     style STORAGE fill:#fff4e1
     style DETECT fill:#ffe1e1
+    style RESPONSE fill:#ffe1f5
     style BQ fill:#e1ffe1
     style REDIS fill:#ffe1f5
 ```
@@ -459,6 +471,9 @@ sequenceDiagram
     participant ENR as Enrichment Service
     participant VT as VirusTotal API
     participant SCORE as Scoring Service
+    participant RESP as Response Service
+    participant FW as Firewall
+    participant EDR as EDR Platform
     participant NOTIFY as Notification Service
     participant SNOW as ServiceNow
     participant SLACK as Slack
@@ -481,20 +496,227 @@ sequenceDiagram
     Note over SCORE: base_score = 0.85 * 100 = 85<br/>threat_type: c2 (1.5x)<br/>asset_criticality: high (1.3x)<br/>final_score = 85 * 1.5 * 1.3 = 165
     SCORE-->>DET: CRITICAL (score: 165)
 
-    DET->>NOTIFY: Send detection alert
+    DET->>RESP: Send detection for response
+    RESP->>RESP: Match detection to playbooks
+    Note over RESP: Playbook: "Block Malicious IP"<br/>Actions: block_ip, notify_slack
+
+    alt Auto-Approved Actions
+        RESP->>FW: Block IP 10.1.2.3 on firewalls
+        FW-->>RESP: IP blocked (rule: deny-10.1.2.3)
+        RESP->>RESP: Action completed
+    else Manual Approval Required
+        RESP->>RESP: Queue action for SOC approval
+        Note over RESP: Action: isolate_host<br/>Status: Pending approval
+    end
+
+    RESP->>NOTIFY: Send notification with action results
 
     par Create ServiceNow Case
         NOTIFY->>SNOW: Create incident
         SNOW-->>NOTIFY: Case INC0012345
     and Send Slack Alert
-        NOTIFY->>SLACK: Send message to #security-alerts
+        NOTIFY->>SLACK: Send message to #security-alerts<br/>"IP 10.1.2.3 blocked automatically"
         SLACK-->>NOTIFY: Message sent
     end
 
-    NOTIFY-->>DET: Notification sent
+    NOTIFY-->>RESP: Notification sent
 
-    Note over ACT,SLACK: Total time: <2 minutes
+    Note over ACT,SLACK: Total time: <2 minutes (with auto-response)
 ```
+
+### Response Service Architecture
+
+```mermaid
+graph TB
+    subgraph "Response Service"
+        MAIN[main.py<br/>FastAPI Application]
+
+        subgraph "Core Components"
+            ENGINE[Response Engine]
+            PLAYBOOK_MATCHER[Playbook Matcher]
+            APPROVAL[Approval Workflow]
+        end
+
+        subgraph "Action Executors"
+            FW_EXEC[Firewall Executor]
+            EDR_EXEC[EDR Executor]
+            IAM_EXEC[Identity Executor]
+            NOTIF_EXEC[Notification Executor]
+        end
+
+        subgraph "Playbook Storage"
+            PLAYBOOKS[(Registered Playbooks)]
+        end
+
+        subgraph "Action History"
+            ACTIONS[(Action Tracking)]
+        end
+
+        subgraph "Health & Metrics"
+            HEALTH[/health endpoint]
+            METRICS[/metrics endpoint]
+            API[REST API<br/>approve, reject, rollback]
+        end
+    end
+
+    subgraph "Input - Detection Events"
+        PS_DET[detection-events<br/>Pub/Sub Topic]
+    end
+
+    subgraph "External Systems - Firewalls"
+        PALO[Palo Alto PAN-OS]
+        FORTI[Fortinet FortiGate]
+        GCP_FW[GCP Firewall Rules]
+    end
+
+    subgraph "External Systems - EDR"
+        MDE[Microsoft Defender]
+        CS[CrowdStrike]
+    end
+
+    subgraph "External Systems - Identity"
+        AD[Active Directory]
+        AZURE_AD[Azure AD]
+        OKTA[Okta]
+    end
+
+    subgraph "Notifications"
+        SLACK_N[Slack]
+        EMAIL[Email]
+        SNOW_N[ServiceNow]
+    end
+
+    %% Detection Input
+    PS_DET -->|Subscribe| MAIN
+    MAIN --> ENGINE
+
+    %% Playbook Matching
+    ENGINE --> PLAYBOOK_MATCHER
+    PLAYBOOK_MATCHER <--> PLAYBOOKS
+    PLAYBOOK_MATCHER --> ENGINE
+
+    %% Approval Workflow
+    ENGINE --> APPROVAL
+    APPROVAL -->|Auto-Approved| ENGINE
+    APPROVAL -->|Pending| API
+    API -->|Approve/Reject| APPROVAL
+    APPROVAL -->|Approved| ENGINE
+
+    %% Action Execution
+    ENGINE --> FW_EXEC
+    ENGINE --> EDR_EXEC
+    ENGINE --> IAM_EXEC
+    ENGINE --> NOTIF_EXEC
+
+    %% Firewall Actions
+    FW_EXEC -->|Block IP/Domain| PALO
+    FW_EXEC -->|Block IP/Domain| FORTI
+    FW_EXEC -->|Create Rules| GCP_FW
+
+    %% EDR Actions
+    EDR_EXEC -->|Isolate Host| MDE
+    EDR_EXEC -->|Isolate Host| CS
+    EDR_EXEC -->|Quarantine File| MDE
+    EDR_EXEC -->|Kill Process| CS
+
+    %% Identity Actions
+    IAM_EXEC -->|Disable User| AD
+    IAM_EXEC -->|Disable User| AZURE_AD
+    IAM_EXEC -->|Suspend User| OKTA
+    IAM_EXEC -->|Revoke Sessions| AZURE_AD
+
+    %% Notifications
+    NOTIF_EXEC --> SLACK_N
+    NOTIF_EXEC --> EMAIL
+    NOTIF_EXEC --> SNOW_N
+
+    %% Action Tracking
+    ENGINE -->|Record Actions| ACTIONS
+    ACTIONS -->|Query Status| API
+
+    %% Health
+    MAIN --> HEALTH
+    MAIN --> METRICS
+
+    style ENGINE fill:#ffe1e1
+    style PLAYBOOK_MATCHER fill:#e1f5ff
+    style APPROVAL fill:#fff4e1
+    style FW_EXEC fill:#e1ffe1
+    style EDR_EXEC fill:#e1ffe1
+    style IAM_EXEC fill:#e1ffe1
+    style NOTIF_EXEC fill:#e1ffe1
+```
+
+**Response Playbook Example:**
+
+```yaml
+playbook_id: "playbook_block_malicious_ip"
+name: "Block Malicious IP"
+description: "Auto-block IPs associated with C2, malware, or ransomware"
+
+trigger_conditions:
+  severity: [CRITICAL, HIGH]
+  threat_types: [c2, malware, ransomware]
+  ioc_types: [ip]
+
+actions:
+  - action_type: block_ip
+    parameters:
+      duration_hours: 24
+      firewall_targets: [palo_alto, gcp_firewall]
+      direction: both
+    approval_required: none  # Auto-execute
+
+  - action_type: notify_slack
+    parameters:
+      channel: "#security-alerts"
+      message: "Malicious IP blocked automatically"
+    approval_required: none
+
+enabled: true
+auto_approve: true
+```
+
+**Approval Workflow:**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: Action Created
+
+    Pending --> Approved: SOC Analyst Approves
+    Pending --> Rejected: SOC Analyst Rejects
+
+    Approved --> InProgress: Execute Action
+    InProgress --> Completed: Success
+    InProgress --> Failed: Error
+
+    Completed --> RolledBack: Manual Rollback
+
+    Rejected --> [*]
+    Failed --> [*]
+    RolledBack --> [*]
+    Completed --> [*]
+```
+
+**Supported Response Actions:**
+
+| Category | Action | Description | Approval Level |
+|----------|--------|-------------|----------------|
+| Network | `block_ip` | Block IP address on firewalls | Auto / None |
+| Network | `block_domain` | Block domain via DNS/URL filtering | Auto / None |
+| Network | `block_url` | Block specific URL | Auto / None |
+| Endpoint | `isolate_host` | Network isolate endpoint | SOC Lead |
+| Endpoint | `quarantine_file` | Quarantine malicious file | SOC Analyst |
+| Endpoint | `kill_process` | Terminate running process | SOC Analyst |
+| Endpoint | `collect_forensics` | Collect memory/disk forensics | SOC Lead |
+| Identity | `disable_user` | Disable user account | SOC Analyst |
+| Identity | `reset_password` | Force password reset | SOC Analyst |
+| Identity | `revoke_session` | Invalidate active sessions | Auto / None |
+| Investigation | `capture_memory` | Capture memory dump | SOC Lead |
+| Investigation | `capture_network` | Capture network traffic | SOC Analyst |
+| Notification | `notify_slack` | Send Slack alert | Auto / None |
+| Notification | `notify_email` | Send email notification | Auto / None |
+| Notification | `create_ticket` | Create ServiceNow ticket | Auto / None |
 
 ---
 
