@@ -1,4 +1,4 @@
-# Threat XDR Platform - Project Plan
+# LADON Platform - Project Plan
 
 **Version:** 1.0  
 **Date:** January 1, 2026  
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-Threat XDR is an enterprise threat detection and response platform that correlates Indicators of Compromise (IOCs) from multiple open-source feeds against organizational activity logs (Proxy, DNS, Sinkhole, MDE, CrowdStrike) to identify potential security incidents. The platform uses a Lambda architecture with fast-path real-time detection (3-minute SLA) and slow-path deep analytics for behavioral threat hunting.
+LADON is an enterprise threat detection and response platform that correlates Indicators of Compromise (IOCs) from multiple open-source feeds against organizational activity logs (Proxy, DNS, Sinkhole, MDE, CrowdStrike) to identify potential security incidents. The platform uses a Lambda architecture with fast-path real-time detection (3-minute SLA) and slow-path deep analytics for behavioral threat hunting.
 
 **Key Objectives:**
 - Reduce mean time to detect (MTTD) from days to <5 minutes for known IOCs
@@ -291,7 +291,7 @@ class NormalizedActivity:
 
 **IOCs Table:**
 ```sql
-CREATE TABLE threat_xdr.iocs (
+CREATE TABLE ladon.iocs (
     ioc_value STRING NOT NULL,
     ioc_type STRING NOT NULL,
     threat_type STRING,
@@ -309,7 +309,7 @@ CLUSTER BY ioc_type, source;
 
 **Activity Logs Table:**
 ```sql
-CREATE TABLE threat_xdr.activity_logs (
+CREATE TABLE ladon.activity_logs (
     event_id STRING NOT NULL,
     timestamp TIMESTAMP NOT NULL,
     source STRING NOT NULL,
@@ -331,7 +331,7 @@ CLUSTER BY source, event_type;
 
 **Detections Table:**
 ```sql
-CREATE TABLE threat_xdr.detections (
+CREATE TABLE ladon.detections (
     detection_id STRING NOT NULL,
     timestamp TIMESTAMP NOT NULL,
     ioc_value STRING,
@@ -2109,7 +2109,7 @@ Assuming team of 5:
 
 ## Conclusion
 
-Threat XDR is an 18-month effort to build a comprehensive threat detection and response platform. With a team of 5 engineers and a budget of ~$1.6M, the platform will:
+LADON is an 18-month effort to build a comprehensive threat detection and response platform. With a team of 5 engineers and a budget of ~$1.6M, the platform will:
 
 - Detect threats in real-time (<5 min MTTD)
 - Process 10M+ events/day

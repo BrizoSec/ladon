@@ -528,7 +528,7 @@ Profile the code and suggest optimizations.
 ## Resources
 
 - **Technical Spec:** `ladon_technical_spec.md` (this document)
-- **Project Plan:** `threat_xdr_project_plan.md`
+- **Project Plan:** `ladon_project_plan.md`
 - **Architecture Diagrams:** In the spec and project plan
 
 ## Getting Help

@@ -57,7 +57,7 @@ echo -e "${YELLOW}Creating dataset (if not exists)...${NC}"
 bq mk \
     --dataset \
     --location="$LOCATION" \
-    --description="LADON Threat XDR Platform - Threat Intelligence and IOC Storage" \
+    --description="LADON XDR Platform - Threat Intelligence and IOC Storage" \
     --label="service:ladon-threat-xdr" \
     --label="managed_by:script" \
     "${PROJECT_ID}:${DATASET}" 2>/dev/null || echo "Dataset already exists"

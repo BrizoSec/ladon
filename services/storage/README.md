@@ -1,6 +1,6 @@
 ## Storage Service
 
-Unified storage layer for the LADON Threat XDR platform. Provides a single interface to BigQuery (analytics), Redis (caching), and Firestore (metadata) following the Lambda architecture pattern.
+Unified storage layer for the LADON platform. Provides a single interface to BigQuery (analytics), Redis (caching), and Firestore (metadata) following the Lambda architecture pattern.
 
 ### Architecture
 
@@ -81,7 +81,7 @@ Set environment variables:
 ```bash
 # BigQuery
 export BIGQUERY_PROJECT_ID="your-project"
-export BIGQUERY_DATASET="threat_xdr"
+export BIGQUERY_DATASET="ladon"
 
 # Redis
 export REDIS_HOST="localhost"
@@ -100,7 +100,7 @@ from storage_service import StorageConfig, BigQueryConfig, RedisConfig
 config = StorageConfig(
     bigquery=BigQueryConfig(
         project_id="my-project",
-        dataset="threat_xdr"
+        dataset="ladon"
     ),
     redis=RedisConfig(
         host="redis.example.com",
@@ -386,4 +386,4 @@ services/storage/
 
 ### License
 
-Internal use only - LADON Threat XDR Platform
+Internal use only - LADON Platform

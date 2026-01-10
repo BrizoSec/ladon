@@ -1,6 +1,6 @@
-# LADON Threat XDR - Architecture Diagrams
+# LADON - Architecture Diagrams
 
-This document provides comprehensive diagrams of the LADON Threat XDR platform architecture, with detailed focus on the Collection Service.
+This document provides comprehensive diagrams of the LADON platform architecture, with detailed focus on the Collection Service.
 
 ## Table of Contents
 - [Overall System Architecture](#overall-system-architecture)

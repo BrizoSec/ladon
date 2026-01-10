@@ -1,5 +1,5 @@
 """
-Structured Logging for LADON Threat XDR Platform
+Structured Logging for LADON Platform
 
 Provides structured logging following the format specified in CLAUDE.md:
 {
