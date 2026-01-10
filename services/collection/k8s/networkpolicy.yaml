@@ -1,0 +1,108 @@
+---
+# =============================================================================
+# NetworkPolicy for Collection Service
+# =============================================================================
+# Restricts network access to/from Collection Service pods
+# Note: Requires a CNI plugin that supports NetworkPolicy (Calico, Cilium, etc.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: collection-service-netpol
+  namespace: ladon
+  labels:
+    app: collection-service
+    component: data-ingestion
+spec:
+  podSelector:
+    matchLabels:
+      app: collection-service
+      component: data-ingestion
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # Ingress rules - what can connect TO collection service
+  ingress:
+    # Allow health checks from Kubernetes
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: 8000
+
+    # Allow Prometheus to scrape metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+
+    # Allow API access from other services in the namespace
+    - from:
+        - podSelector: {}  # All pods in ladon namespace
+      ports:
+        - protocol: TCP
+          port: 8000
+
+  # Egress rules - what collection service can connect TO
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+        - podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+
+    # Allow connection to Storage Service
+    - to:
+        - podSelector:
+            matchLabels:
+              app: storage-service
+      ports:
+        - protocol: TCP
+          port: 8080
+
+    # Allow connection to Pub/Sub (GCP)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+
+    # Allow external API calls (AlienVault, abuse.ch, MISP)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+
+    # Allow Trino/BigQuery connections
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080  # Trino
+        - protocol: TCP
+          port: 443  # BigQuery
+
+    # Allow NTP for time synchronization (optional)
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 123

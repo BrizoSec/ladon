@@ -1,0 +1,92 @@
+---
+# =============================================================================
+# Kustomization for Collection Service
+# =============================================================================
+# Usage:
+#   kubectl apply -k services/collection/k8s/
+#
+# This allows declarative management of all Collection Service resources
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Namespace for all resources
+namespace: ladon
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: collection-service
+  app.kubernetes.io/component: data-ingestion
+  app.kubernetes.io/part-of: ladon-threat-xdr
+  app.kubernetes.io/managed-by: kustomize
+
+# Common annotations
+commonAnnotations:
+  managed-by: kubectl
+  documentation: https://github.com/your-org/ladon
+
+# Resources to include
+resources:
+  - namespace.yaml
+  - serviceaccount.yaml
+  - configmap.yaml
+  # - secret.yaml  # Create from template first!
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - servicemonitor.yaml
+
+# Images to use (can be overridden with overlays)
+images:
+  - name: gcr.io/PROJECT_ID/collection-service
+    newName: gcr.io/ladon-production/collection-service
+    newTag: latest
+
+# ConfigMap generator (alternative to static ConfigMap)
+# configMapGenerator:
+#   - name: collection-service-config
+#     envs:
+#       - config.env
+
+# Secret generator (not recommended - use external secret management)
+# secretGenerator:
+#   - name: collection-service-secrets
+#     envs:
+#       - secret.env
+
+# Patches and overlays
+patchesStrategicMerge: []
+
+# Replicas override
+# replicas:
+#   - name: collection-service
+#     count: 3
+
+# Name prefix/suffix
+# namePrefix: prod-
+# nameSuffix: -v1
+
+# =============================================================================
+# Environment-Specific Overlays
+# =============================================================================
+# For different environments, create overlay directories:
+#
+# k8s/
+#   base/              # Base configuration (this directory)
+#   overlays/
+#     dev/
+#       kustomization.yaml
+#       patch-deployment.yaml
+#       patch-configmap.yaml
+#     staging/
+#       kustomization.yaml
+#       patch-deployment.yaml
+#     production/
+#       kustomization.yaml
+#       patch-deployment.yaml
+#
+# Then apply with:
+#   kubectl apply -k k8s/overlays/production/
+# =============================================================================

@@ -1,0 +1,14 @@
+---
+# Development environment patches for ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collection-service-config
+data:
+  # Override with dev-specific values
+  COLLECTION_ENVIRONMENT: "development"
+  COLLECTION_LOG_LEVEL: "DEBUG"
+  PUBSUB_PROJECT_ID: "ladon-dev"
+  ALIENVAULT_COLLECTION_INTERVAL_MINUTES: "60"  # Slower for dev
+  ABUSECH_COLLECTION_INTERVAL_MINUTES: "60"
+  TRINO_PROXY_COLLECTION_INTERVAL_MINUTES: "30"

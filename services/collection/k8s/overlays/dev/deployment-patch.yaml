@@ -1,0 +1,31 @@
+---
+# Development environment patches for Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collection-service
+spec:
+  replicas: 1  # Single replica for dev
+  template:
+    spec:
+      containers:
+        - name: collection-service
+          # Lower resource requests for dev
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+
+          # Dev-specific environment variables
+          env:
+            - name: COLLECTION_ENVIRONMENT
+              value: "development"
+            - name: COLLECTION_LOG_LEVEL
+              value: "DEBUG"
+            - name: USE_MOCK_PUBSUB
+              value: "true"
+            - name: USE_MOCK_STORAGE
+              value: "true"

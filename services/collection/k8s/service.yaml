@@ -1,0 +1,101 @@
+---
+# =============================================================================
+# Service for Collection Service (ClusterIP)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: collection-service
+  namespace: ladon
+  labels:
+    app: collection-service
+    component: data-ingestion
+  annotations:
+    description: "Internal service for Collection Service API"
+spec:
+  type: ClusterIP
+  sessionAffinity: None
+
+  selector:
+    app: collection-service
+    component: data-ingestion
+
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+---
+# =============================================================================
+# Service for Collection Service (LoadBalancer) - Optional
+# =============================================================================
+# Uncomment if you need external access to the Collection Service API
+#
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: collection-service-external
+#   namespace: ladon
+#   labels:
+#     app: collection-service
+#     component: data-ingestion
+#   annotations:
+#     # GCP Load Balancer annotations
+#     cloud.google.com/load-balancer-type: "External"
+#     networking.gke.io/load-balancer-type: "External"
+#
+#     # AWS Load Balancer annotations
+#     # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+#     # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+#
+#     # Azure Load Balancer annotations
+#     # service.beta.kubernetes.io/azure-load-balancer-internal: "false"
+# spec:
+#   type: LoadBalancer
+#   sessionAffinity: None
+#
+#   selector:
+#     app: collection-service
+#     component: data-ingestion
+#
+#   ports:
+#     - name: http
+#       port: 80
+#       targetPort: http
+#       protocol: TCP
+#
+#   # Optionally restrict source IPs
+#   # loadBalancerSourceRanges:
+#   #   - 10.0.0.0/8  # Internal network
+#   #   - 203.0.113.0/24  # Office IP range
+---
+# =============================================================================
+# Headless Service for StatefulSet (if needed for collection sharding)
+# =============================================================================
+# Uncomment if using StatefulSet with stable network identities
+#
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: collection-service-headless
+#   namespace: ladon
+#   labels:
+#     app: collection-service
+#     component: data-ingestion
+# spec:
+#   type: ClusterIP
+#   clusterIP: None  # Headless service
+#   publishNotReadyAddresses: true
+#   selector:
+#     app: collection-service
+#     component: data-ingestion
+#   ports:
+#     - name: http
+#       port: 8080
+#       targetPort: http
+#       protocol: TCP

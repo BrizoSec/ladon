@@ -1,0 +1,14 @@
+---
+# =============================================================================
+# Namespace for LADON Threat XDR Platform
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ladon
+  labels:
+    name: ladon
+    environment: production
+    managed-by: kubectl
+  annotations:
+    description: "LADON Threat XDR Platform - Namespace for all services"

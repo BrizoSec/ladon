@@ -1,0 +1,36 @@
+---
+# =============================================================================
+# Development Environment Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference base configuration
+bases:
+  - ../../
+
+# Namespace override
+namespace: ladon-dev
+
+# Name prefix for dev resources
+namePrefix: dev-
+
+# Common labels for dev environment
+commonLabels:
+  environment: development
+
+# Resource patches for dev
+patchesStrategicMerge:
+  - deployment-patch.yaml
+  - configmap-patch.yaml
+
+# Image overrides
+images:
+  - name: gcr.io/ladon-production/collection-service
+    newName: gcr.io/ladon-dev/collection-service
+    newTag: dev-latest
+
+# Replicas override - lower for dev
+replicas:
+  - name: collection-service
+    count: 1

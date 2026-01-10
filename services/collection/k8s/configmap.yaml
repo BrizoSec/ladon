@@ -1,0 +1,136 @@
+---
+# =============================================================================
+# ConfigMap for Collection Service Non-Sensitive Configuration
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collection-service-config
+  namespace: ladon
+  labels:
+    app: collection-service
+    component: data-ingestion
+data:
+  # Service Configuration
+  COLLECTION_ENVIRONMENT: "production"
+  COLLECTION_LOG_LEVEL: "INFO"
+  COLLECTION_MAX_CONCURRENT_COLLECTORS: "10"
+  COLLECTION_HEALTH_CHECK_INTERVAL_SECONDS: "60"
+
+  # Storage Service URL
+  COLLECTION_STORAGE_SERVICE_URL: "http://storage-service.ladon.svc.cluster.local:8080"
+
+  # Pub/Sub Configuration (non-sensitive)
+  PUBSUB_PROJECT_ID: "ladon-production"
+  PUBSUB_RAW_IOC_EVENTS_TOPIC: "raw-ioc-events"
+  PUBSUB_RAW_ACTIVITY_EVENTS_TOPIC: "raw-activity-events"
+  PUBSUB_RAW_THREAT_EVENTS_TOPIC: "raw-threat-events"
+  PUBSUB_NORMALIZED_THREAT_EVENTS_TOPIC: "normalized-threat-events"
+  PUBSUB_MAX_MESSAGES_PER_BATCH: "1000"
+  PUBSUB_MAX_BATCH_SIZE_BYTES: "10000000"
+  PUBSUB_TIMEOUT_SECONDS: "10.0"
+
+  # AlienVault OTX Configuration (non-sensitive)
+  ALIENVAULT_API_ENDPOINT: "https://otx.alienvault.com/api/v1"
+  ALIENVAULT_COLLECTION_INTERVAL_MINUTES: "30"
+  ALIENVAULT_PULSES_LIMIT: "100"
+
+  # abuse.ch Configuration (non-sensitive)
+  ABUSECH_THREATFOX_URL: "https://threatfox-api.abuse.ch/api/v1/"
+  ABUSECH_URLHAUS_URL: "https://urlhaus-api.abuse.ch/v1/"
+  ABUSECH_MALWARE_BAZAAR_URL: "https://mb-api.abuse.ch/api/v1/"
+  ABUSECH_COLLECTION_INTERVAL_MINUTES: "15"
+
+  # MISP Configuration (non-sensitive)
+  MISP_COLLECTION_INTERVAL_MINUTES: "30"
+  MISP_VERIFY_SSL: "true"
+  MISP_PUBLISHED_ONLY: "true"
+  MISP_TO_IDS_ONLY: "true"
+
+  # Trino Configuration (non-sensitive)
+  TRINO_PROXY_PORT: "8080"
+  TRINO_PROXY_CATALOG: "security_logs"
+  TRINO_PROXY_SCHEMA: "proxy"
+  TRINO_PROXY_TABLE: "http_requests"
+  TRINO_PROXY_USER: "ladon_service"
+  TRINO_PROXY_TIMESTAMP_COLUMN: "request_timestamp"
+  TRINO_PROXY_COLLECTION_INTERVAL_MINUTES: "3"
+  TRINO_PROXY_BATCH_SIZE: "100000"
+
+  # Performance Tuning
+  COLLECTION_MAX_MEMORY_MB: "4096"
+  COLLECTION_MAX_EVENTS_IN_MEMORY: "100000"
+  COLLECTION_RATE_LIMIT_EVENTS_PER_SECOND: "10000"
+  COLLECTION_WATERMARK_UPDATE_INTERVAL_SECONDS: "30"
+
+  # Monitoring
+  PROMETHEUS_ENABLED: "true"
+  PROMETHEUS_PORT: "9090"
+  HEALTH_CHECK_TIMEOUT_SECONDS: "5"
+  UNHEALTHY_THRESHOLD_FAILURES: "3"
+
+  # Logging
+  LOG_FORMAT: "json"
+  LOG_OUTPUT: "stdout"
+
+  # Security
+  VERIFY_SSL_DEFAULT: "true"
+  AUDIT_LOG_ENABLED: "true"
+
+  # Configuration file path (if using file-based config)
+  COLLECTION_CONFIG_FILE: "/app/config/config.yaml"
+---
+# =============================================================================
+# ConfigMap for Collection Service Configuration File (Optional)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collection-service-yaml-config
+  namespace: ladon
+  labels:
+    app: collection-service
+    component: data-ingestion
+data:
+  config.yaml: |
+    # LADON Collection Service Configuration
+    # This config is mounted as a file in the pod
+
+    service:
+      environment: production
+      log_level: INFO
+      max_concurrent_collectors: 10
+      health_check_interval_seconds: 60
+      storage_service_url: http://storage-service.ladon.svc.cluster.local:8080
+
+    pubsub:
+      project_id: ladon-production
+      raw_ioc_events_topic: raw-ioc-events
+      raw_activity_events_topic: raw-activity-events
+      raw_threat_events_topic: raw-threat-events
+      normalized_threat_events_topic: normalized-threat-events
+      max_messages_per_batch: 1000
+      max_batch_size_bytes: 10000000
+      timeout_seconds: 10.0
+
+    # IOC Feeds (configure as needed)
+    ioc_feeds:
+      - id: alienvault_otx
+        name: "AlienVault OTX"
+        source_type: ioc_feed
+        collector_type: alienvault_otx
+        enabled: true
+        collection_interval_minutes: 30
+        api_key: ${ALIENVAULT_API_KEY}  # Loaded from secret
+        pubsub_topic: raw-ioc-events
+
+      - id: abuse_ch
+        name: "abuse.ch ThreatFox"
+        source_type: ioc_feed
+        collector_type: abuse_ch
+        enabled: true
+        collection_interval_minutes: 15
+        pubsub_topic: raw-ioc-events
+
+    # Activity Logs (configure as needed)
+    activity_logs: []

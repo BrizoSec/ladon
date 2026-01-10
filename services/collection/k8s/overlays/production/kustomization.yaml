@@ -1,0 +1,36 @@
+---
+# =============================================================================
+# Production Environment Overlay
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Reference base configuration
+bases:
+  - ../../
+
+# Namespace
+namespace: ladon
+
+# Name prefix for production
+namePrefix: prod-
+
+# Common labels for production environment
+commonLabels:
+  environment: production
+
+# Resource patches for production
+patchesStrategicMerge:
+  - deployment-patch.yaml
+  - hpa-patch.yaml
+
+# Image overrides
+images:
+  - name: gcr.io/ladon-production/collection-service
+    newName: gcr.io/ladon-production/collection-service
+    newTag: v1.0.0  # Use specific version in production
+
+# Replicas override - higher for production
+replicas:
+  - name: collection-service
+    count: 3
