@@ -1,6 +1,6 @@
 # Response Service
 
-Automated security response and remediation service for the LADON Threat XDR platform.
+Automated security response and remediation service for the LADON platform.
 
 ## Overview
 
@@ -488,9 +488,9 @@ curl -X POST http://localhost:8080/actions/act_abc123/rollback
 ## References
 
 - [Architecture Diagrams](../../docs/ARCHITECTURE_DIAGRAMS.md)
-- [Project Plan](../../docs/threat_xdr_project_plan.md)
+- [Project Plan](../../docs/ladon_project_plan.md)
 - [CLAUDE.md](../../CLAUDE.md)
 
 ## License
 
-Copyright © 2026 LADON Threat XDR Platform
+Copyright © 2026 LADON Platform

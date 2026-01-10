@@ -31,14 +31,14 @@ Many-to-many relationship table linking threats to specific IOCs with relationsh
 ### Prerequisites
 - Google Cloud Project with BigQuery enabled
 - `gcloud` CLI installed and authenticated
-- BigQuery dataset `threat_xdr` created
+- BigQuery dataset `ladon` created
 
 ### Create Dataset (if not exists)
 ```bash
 bq mk --dataset \
   --location=US \
-  --description="LADON Threat XDR Platform - Threat Intelligence" \
-  YOUR_PROJECT_ID:threat_xdr
+  --description="LADON Platform - Threat Intelligence" \
+  YOUR_PROJECT_ID:ladon
 ```
 
 ### Deploy Tables
@@ -111,25 +111,25 @@ See `../terraform/modules/bigquery/` for Terraform configurations.
 
 ### Active Threats View
 ```sql
-SELECT * FROM `threat_xdr.active_threats`
+SELECT * FROM `ladon.active_threats`
 WHERE severity IN ('high', 'critical');
 ```
 
 ### APT Threats View
 ```sql
-SELECT * FROM `threat_xdr.apt_threats`
+SELECT * FROM `ladon.apt_threats`
 ORDER BY confidence DESC;
 ```
 
 ### High Confidence Associations
 ```sql
-SELECT * FROM `threat_xdr.high_confidence_associations`
+SELECT * FROM `ladon.high_confidence_associations`
 WHERE ioc_type = 'domain';
 ```
 
 ### IOC-to-Threat Lookup
 ```sql
-SELECT * FROM `threat_xdr.ioc_threat_lookup`
+SELECT * FROM `ladon.ioc_threat_lookup`
 WHERE ioc_value = 'malicious.com';
 ```
 
@@ -142,7 +142,7 @@ SELECT
   ioc_type,
   relationship_type,
   confidence
-FROM `threat_xdr.threat_ioc_associations`
+FROM `ladon.threat_ioc_associations`
 WHERE threat_id = 'apt28_2026'
 ORDER BY confidence DESC;
 ```
@@ -155,8 +155,8 @@ SELECT
   t.severity,
   a.confidence,
   a.relationship_type
-FROM `threat_xdr.threat_ioc_associations` a
-JOIN `threat_xdr.threats` t ON a.threat_id = t.threat_id
+FROM `ladon.threat_ioc_associations` a
+JOIN `ladon.threats` t ON a.threat_id = t.threat_id
 WHERE a.ioc_value = 'evil.com'
   AND a.ioc_type = 'domain';
 ```
@@ -168,7 +168,7 @@ SELECT
   ioc_type,
   COUNT(DISTINCT threat_id) AS shared_count,
   ARRAY_AGG(DISTINCT threat_id) AS threats
-FROM `threat_xdr.threat_ioc_associations`
+FROM `ladon.threat_ioc_associations`
 GROUP BY ioc_value, ioc_type
 HAVING shared_count > 1
 ORDER BY shared_count DESC;
@@ -181,7 +181,7 @@ WITH techniques_expanded AS (
     JSON_EXTRACT_SCALAR(technique, '$.technique_id') AS technique_id,
     JSON_EXTRACT_SCALAR(technique, '$.technique_name') AS technique_name,
     JSON_EXTRACT_SCALAR(technique, '$.tactic') AS tactic
-  FROM `threat_xdr.threats`,
+  FROM `ladon.threats`,
   UNNEST(JSON_EXTRACT_ARRAY(techniques)) AS technique
   WHERE is_active = TRUE
 )
@@ -205,11 +205,11 @@ Both tables are partitioned by date on the `last_seen` field:
 
 ```sql
 -- Good: Uses partition filter
-SELECT * FROM `threat_xdr.threats`
+SELECT * FROM `ladon.threats`
 WHERE DATE(last_seen) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAYS);
 
 -- Bad: Full table scan
-SELECT * FROM `threat_xdr.threats`
+SELECT * FROM `ladon.threats`
 WHERE name LIKE '%APT%';
 ```
 
@@ -244,7 +244,7 @@ SELECT
   table_name,
   ROUND(size_bytes / POW(10, 9), 2) AS size_gb,
   row_count
-FROM `threat_xdr.__TABLES__`
+FROM `ladon.__TABLES__`
 WHERE table_name IN ('threats', 'threat_ioc_associations');
 ```
 
@@ -273,7 +273,7 @@ Recommended retention policies:
 
 Set partition expiration:
 ```sql
-ALTER TABLE `threat_xdr.threat_ioc_associations`
+ALTER TABLE `ladon.threat_ioc_associations`
 SET OPTIONS (partition_expiration_days=365);
 ```
 
@@ -283,7 +283,7 @@ SET OPTIONS (partition_expiration_days=365);
 ```bash
 bq extract \
   --destination_format=NEWLINE_DELIMITED_JSON \
-  threat_xdr.threats \
+  ladon.threats \
   gs://your-bucket/backups/threats/$(date +%Y%m%d)/*.json
 ```
 
@@ -291,7 +291,7 @@ bq extract \
 ```bash
 bq load \
   --source_format=NEWLINE_DELIMITED_JSON \
-  threat_xdr.threats \
+  ladon.threats \
   gs://your-bucket/backups/threats/20260105/*.json
 ```
 
@@ -308,7 +308,7 @@ For sensitive threat intelligence:
 ```sql
 -- Create policy (example)
 CREATE ROW ACCESS POLICY sensitive_threats
-ON `threat_xdr.threats`
+ON `ladon.threats`
 GRANT TO ("group:soc-team@example.com")
 FILTER USING (severity IN ('high', 'critical'));
 ```

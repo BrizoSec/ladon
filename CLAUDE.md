@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LADON is an enterprise Threat XDR (Extended Detection and Response) platform that correlates Indicators of Compromise (IOCs) from multiple threat intelligence feeds against organizational activity logs to identify security threats in real-time. Named after the hundred-headed serpent that guarded the golden apples in the Garden of the Hesperides.
+LADON is an enterprise LADON (Extended Detection and Response) platform that correlates Indicators of Compromise (IOCs) from multiple threat intelligence feeds against organizational activity logs to identify security threats in real-time. Named after the hundred-headed serpent that guarded the golden apples in the Garden of the Hesperides.
 
 **Key Capabilities:**
 - Real-time threat detection with <5 minute SLA
@@ -197,7 +197,7 @@ base_score = ioc.confidence * 100
 
 ### IOCs Table
 ```sql
-threat_xdr.iocs
+ladon.iocs
   - ioc_value STRING
   - ioc_type STRING
   - threat_type STRING
@@ -213,7 +213,7 @@ threat_xdr.iocs
 
 ### Activity Logs Table
 ```sql
-threat_xdr.activity_logs
+ladon.activity_logs
   - event_id STRING
   - timestamp TIMESTAMP
   - source STRING
@@ -227,7 +227,7 @@ threat_xdr.activity_logs
 
 ### Detections Table
 ```sql
-threat_xdr.detections
+ladon.detections
   - detection_id STRING
   - timestamp TIMESTAMP
   - ioc_value STRING
@@ -555,12 +555,12 @@ The platform is built across 4 phases over 18 months:
 ## References
 
 - **Quick Start Guide:** `ladon_quick_start_guide.md` - How to use this spec with Claude for code generation
-- **Project Plan:** `threat_xdr_project_plan.md` - Detailed 18-month roadmap with all service specifications
+- **Project Plan:** `ladon_project_plan.md` - Detailed 18-month roadmap with all service specifications
 
 ## Working with This Codebase
 
 When implementing services:
-1. Always reference the service specifications in `threat_xdr_project_plan.md`
+1. Always reference the service specifications in `ladon_project_plan.md`
 2. Use the data models defined above (IOC, ActivityEvent, Detection)
 3. Follow the Lambda architecture pattern (fast path + slow path)
 4. Implement watermark-based collection for all data sources

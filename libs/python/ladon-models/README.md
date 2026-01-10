@@ -1,6 +1,6 @@
 # ladon-models
 
-Core data models for the LADON Threat XDR platform. This package provides Pydantic-based models for IOCs (Indicators of Compromise), activity events, detections, and supporting utilities.
+Core data models for the LADON platform. This package provides Pydantic-based models for IOCs (Indicators of Compromise), activity events, detections, and supporting utilities.
 
 ## Overview
 
@@ -358,4 +358,4 @@ When adding new IOC types or fields:
 
 ## License
 
-Internal use only - LADON Threat XDR Platform
+Internal use only - LADON Platform

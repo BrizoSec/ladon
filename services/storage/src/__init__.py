@@ -2,7 +2,7 @@
 LADON Storage Service
 
 Unified storage layer providing access to BigQuery, Redis, and Firestore
-for the Threat XDR platform.
+for the LADON platform.
 """
 
 from .config import BigQueryConfig, FirestoreConfig, RedisConfig, StorageConfig

@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "ladon"
 version = "0.1.0"
-description = "LADON - Threat XDR Platform"
+description = "LADON - XDR Platform"
 authors = ["Your Team <team@example.com>"]
 readme = "README.md"
 

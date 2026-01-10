@@ -1,6 +1,6 @@
 # LADON Pub/Sub Topics Architecture
 
-This document describes all Pub/Sub topics in the LADON Threat XDR platform and how data flows through them.
+This document describes all Pub/Sub topics in the LADON platform and how data flows through them.
 
 ## Overview
 

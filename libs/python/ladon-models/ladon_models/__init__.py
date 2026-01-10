@@ -1,7 +1,7 @@
 """
 LADON Data Models Package
 
-This package provides all data models used across the LADON Threat XDR platform,
+This package provides all data models used across the LADON platform,
 including IOCs, activity events, detections, and supporting utilities.
 """
 

@@ -1,5 +1,5 @@
 """
-Prometheus Metrics for LADON Threat XDR Platform
+Prometheus Metrics for LADON Platform
 
 Provides standardized Prometheus metrics following CLAUDE.md specifications:
 - Collection metrics: collection_events_per_second, collection_errors_total, collection_latency_seconds
