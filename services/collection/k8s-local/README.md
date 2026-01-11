@@ -38,7 +38,7 @@ docker images | grep collection-service
 # Create secrets with your API keys
 kubectl create secret generic collection-secrets \
   --from-literal=ALIENVAULT_API_KEY='YOUR_ALIENVAULT_KEY' \
-  --from-literal=ABUSECH_AUTH_KEY='YOUR_ABUSECH_KEY' \
+  --from-literal=ABUSECH_API_KEY='YOUR_ABUSECH_KEY' \
   --from-literal=POSTGRES_PASSWORD='ladon123' \
   -n ladon-local
 

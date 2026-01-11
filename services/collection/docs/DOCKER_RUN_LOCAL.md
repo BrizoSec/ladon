@@ -120,7 +120,7 @@ docker-compose -f docker-compose.standalone.yml down
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ABUSECH_AUTH_KEY` | abuse.ch auth key | None |
+| `ABUSECH_API_KEY` | abuse.ch auth key | None |
 | `COLLECTION_LOG_LEVEL` | Log level | `INFO` |
 | `ALIENVAULT_PULSES_LIMIT` | Max pulses to fetch | `100` |
 

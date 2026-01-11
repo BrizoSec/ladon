@@ -66,7 +66,7 @@ docker run -d --rm --name ladon-test -p 8000:8000 \
   collection-service:local
 ```
 
-**Note:** The environment variable is `ABUSECH_API_KEY` (not `ABUSECH_AUTH_KEY`).
+**Note:** The environment variable is `ABUSECH_API_KEY` (not `ABUSECH_API_KEY`).
 
 #### Step 3: Verify
 ```bash

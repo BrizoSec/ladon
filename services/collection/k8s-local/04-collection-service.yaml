@@ -55,11 +55,11 @@ spec:
                 secretKeyRef:
                   name: collection-secrets
                   key: ALIENVAULT_API_KEY
-            - name: ABUSECH_AUTH_KEY
+            - name: ABUSECH_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: collection-secrets
-                  key: ABUSECH_AUTH_KEY
+                  key: ABUSECH_API_KEY
                   optional: true
             - name: POSTGRES_PASSWORD
               valueFrom:
