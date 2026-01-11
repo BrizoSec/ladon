@@ -10,6 +10,7 @@ data:
   COLLECTION_ENVIRONMENT: "development"  # Uses mock Pub/Sub and storage
   COLLECTION_LOG_LEVEL: "INFO"
   COLLECTION_MAX_CONCURRENT_COLLECTORS: "5"
+  COLLECTION_CONFIG_FILE: "/app/config/config.test.yaml"
 
   # Storage Type (PostgreSQL instead of Firestore)
   STORAGE_TYPE: "postgresql"
