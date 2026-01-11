@@ -43,7 +43,11 @@ class AbuseCHCollector(BaseCollector):
         Returns:
             aiohttp ClientSession
         """
-        if self.session is None:
+        if self.session is None or self.session.closed:
+            # Close old session if it exists
+            if self.session and not self.session.closed:
+                await self.session.close()
+
             headers = {"Accept": "application/json"}
             if self.config.api_key:
                 headers["Auth-Key"] = self.config.api_key
@@ -59,24 +63,37 @@ class AbuseCHCollector(BaseCollector):
         Returns:
             True if connection is valid
         """
-        try:
-            # Test ThreatFox API
-            session = await self._get_session()
-            payload = {"query": "get_iocs", "days": 1}
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                # Test ThreatFox API
+                session = await self._get_session()
+                payload = {"query": "get_iocs", "days": 1}
 
-            async with session.post(
-                self.config.threatfox_url, json=payload
-            ) as response:
-                if response.status == 200:
-                    logger.info("abuse.ch connection validated successfully")
-                    return True
-                else:
-                    logger.error(f"abuse.ch connection failed: {response.status}")
+                async with session.post(
+                    self.config.threatfox_url, json=payload
+                ) as response:
+                    if response.status == 200:
+                        logger.info("abuse.ch connection validated successfully")
+                        return True
+                    else:
+                        logger.error(f"abuse.ch connection failed: {response.status}")
+                        return False
+
+            except aiohttp.ServerDisconnectedError as e:
+                logger.warning(f"abuse.ch connection disconnected, recreating session (attempt {attempt + 1}/{max_retries})")
+                # Force session recreation on next call
+                if self.session and not self.session.closed:
+                    await self.session.close()
+                self.session = None
+                if attempt == max_retries - 1:
+                    logger.error(f"abuse.ch connection validation failed after {max_retries} attempts")
                     return False
+            except Exception as e:
+                logger.error(f"abuse.ch connection validation error: {e}")
+                return False
 
-        except Exception as e:
-            logger.error(f"abuse.ch connection validation error: {e}")
-            return False
+        return False
 
     async def collect(self) -> Dict[str, Any]:
         """Collect IOCs from abuse.ch feeds.

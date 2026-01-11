@@ -1,0 +1,109 @@
+---
+# PostgreSQL StatefulSet for local development
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: ladon-local
+data:
+  init.sql: |
+    -- Create watermarks table
+    CREATE TABLE IF NOT EXISTS watermarks (
+        source_id VARCHAR(255) PRIMARY KEY,
+        last_successful_timestamp TIMESTAMP WITH TIME ZONE,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        records_collected INTEGER DEFAULT 0,
+        error_message TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    -- Create IOCs table
+    CREATE TABLE IF NOT EXISTS iocs (
+        id SERIAL PRIMARY KEY,
+        ioc_value TEXT NOT NULL,
+        ioc_type VARCHAR(50) NOT NULL,
+        threat_type VARCHAR(50),
+        confidence FLOAT,
+        source VARCHAR(100) NOT NULL,
+        first_seen TIMESTAMP WITH TIME ZONE NOT NULL,
+        last_seen TIMESTAMP WITH TIME ZONE NOT NULL,
+        tags TEXT[],
+        metadata JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    CREATE INDEX idx_iocs_value ON iocs(ioc_value);
+    CREATE INDEX idx_iocs_type ON iocs(ioc_type);
+    CREATE INDEX idx_iocs_first_seen ON iocs(first_seen);
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ladon-local
+spec:
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgres
+  clusterIP: None  # Headless service
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: ladon-local
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: ladon
+            - name: POSTGRES_USER
+              value: ladon
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: collection-secrets
+                  key: POSTGRES_PASSWORD
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - name: init-script
+          configMap:
+            name: postgres-init
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

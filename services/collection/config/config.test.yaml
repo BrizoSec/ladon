@@ -1,0 +1,85 @@
+# LADON Collection Service - Test Configuration
+# Simple config for local Docker testing with AlienVault OTX and abuse.ch
+
+# Service settings
+service:
+  environment: development
+  log_level: INFO
+  max_concurrent_collectors: 3
+  health_check_interval_seconds: 60
+
+# Pub/Sub configuration
+pubsub:
+  project_id: ladon-dev
+  raw_ioc_events_topic: raw-ioc-events
+  raw_activity_events_topic: raw-activity-events
+  raw_threat_events_topic: raw-threat-events
+  normalized_threat_events_topic: normalized-threat-events
+  max_messages_per_batch: 1000
+  max_batch_size_bytes: 10000000
+  timeout_seconds: 10.0
+
+# IOC Feeds - Threat Intelligence Sources
+ioc_feeds:
+  # AlienVault OTX
+  - id: alienvault_otx_test
+    name: "AlienVault OTX - Test Feed"
+    source_type: ioc_feed
+    collector_type: alienvault_otx
+    enabled: true
+
+    # Runs every 5 minutes for testing (production: 30 min)
+    collection_interval_minutes: 5
+
+    # API credentials (will be overridden by environment variables)
+    api_key: YOUR_ALIENVAULT_API_KEY_HERE
+    api_endpoint: https://otx.alienvault.com/api/v1
+
+    # Small limit for testing
+    pulses_limit: 10
+
+    # Performance settings
+    batch_size: 100
+    max_concurrent_requests: 2
+    timeout_seconds: 30
+    max_retries: 3
+
+    # Pub/Sub destination
+    pubsub_topic: raw-ioc-events
+
+    # Query config
+    query_config:
+      modified_since_days: 7
+      subscribed_only: false
+
+  # abuse.ch
+  - id: abuse_ch_test
+    name: "abuse.ch - ThreatFox + URLhaus (Test)"
+    source_type: ioc_feed
+    collector_type: abuse_ch
+    enabled: true
+
+    # Runs every 5 minutes for testing (production: 15 min)
+    collection_interval_minutes: 5
+
+    # API endpoints
+    threatfox_url: https://threatfox-api.abuse.ch/api/v1/
+    urlhaus_url: https://urlhaus-api.abuse.ch/v1/
+    malware_bazaar_url: https://mb-api.abuse.ch/api/v1/
+
+    # API key (optional, will be overridden by env var)
+    api_key: null
+
+    # Performance settings
+    batch_size: 100
+    max_concurrent_requests: 2
+    timeout_seconds: 30
+
+    # Pub/Sub destination
+    pubsub_topic: raw-ioc-events
+
+    # Query config
+    query_config:
+      threatfox_days: 3
+      urlhaus_days: 3
+      confidence_threshold: 50

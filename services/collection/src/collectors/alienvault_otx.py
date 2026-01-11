@@ -60,23 +60,36 @@ class AlienVaultOTXCollector(BaseCollector):
         Returns:
             True if connection is valid
         """
-        try:
-            session = await self._get_session()
-            url = f"{self.config.api_endpoint}/pulses/subscribed"
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                session = await self._get_session()
+                url = f"{self.config.api_endpoint}/pulses/subscribed"
 
-            async with session.get(url, params={"limit": 1}) as response:
-                if response.status == 200:
-                    logger.info("AlienVault OTX connection validated successfully")
-                    return True
-                else:
-                    logger.error(
-                        f"AlienVault OTX connection failed: {response.status}"
-                    )
+                async with session.get(url, params={"limit": 1}) as response:
+                    if response.status == 200:
+                        logger.info("AlienVault OTX connection validated successfully")
+                        return True
+                    else:
+                        logger.error(
+                            f"AlienVault OTX connection failed: {response.status}"
+                        )
+                        return False
+
+            except aiohttp.ServerDisconnectedError as e:
+                logger.warning(f"AlienVault OTX connection disconnected, recreating session (attempt {attempt + 1}/{max_retries})")
+                # Force session recreation on next call
+                if self.session and not self.session.closed:
+                    await self.session.close()
+                self.session = None
+                if attempt == max_retries - 1:
+                    logger.error(f"AlienVault OTX connection validation failed after {max_retries} attempts")
                     return False
+            except Exception as e:
+                logger.error(f"AlienVault OTX connection validation error: {e}")
+                return False
 
-        except Exception as e:
-            logger.error(f"AlienVault OTX connection validation error: {e}")
-            return False
+        return False
 
     async def collect(self) -> Dict[str, Any]:
         """Collect IOCs from AlienVault OTX.

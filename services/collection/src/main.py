@@ -12,6 +12,22 @@ from .clients.storage_client import MockStorageClient, StorageServiceClient
 from .collection_service import CollectionService
 from .config import CollectionConfig, PubSubConfig
 
+# Import config loader from config directory
+import sys
+from pathlib import Path
+
+# Add config directory to path to import config_loader
+config_dir = Path(__file__).parent.parent / "config"
+if str(config_dir) not in sys.path:
+    sys.path.insert(0, str(config_dir))
+
+try:
+    from config_loader import load_collection_config
+    CONFIG_LOADER_AVAILABLE = True
+except ImportError as e:
+    CONFIG_LOADER_AVAILABLE = False
+    print(f"Warning: config_loader not available - using basic config. Error: {e}")
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -100,8 +116,21 @@ def load_config() -> CollectionConfig:
     Returns:
         CollectionConfig instance
     """
-    # For now, create a basic config with Pub/Sub settings
-    # In production, this would load from environment variables or config files
+    # Try to load from config file if available
+    config_file = os.getenv("COLLECTION_CONFIG_FILE")
+
+    if config_file and CONFIG_LOADER_AVAILABLE:
+        logger.info(f"Loading configuration from file: {config_file}")
+        try:
+            config = load_collection_config(config_file)
+            logger.info(f"Loaded {len(config.data_sources)} data sources from config file")
+            return config
+        except Exception as e:
+            logger.error(f"Failed to load config file: {e}")
+            logger.info("Falling back to basic configuration")
+
+    # Fallback: Basic config with Pub/Sub settings but no data sources
+    logger.info("Using basic configuration (no config file)")
     pubsub_config = PubSubConfig(
         project_id=os.getenv("PUBSUB_PROJECT_ID", "ladon-dev"),
         raw_ioc_events_topic=os.getenv(
@@ -119,11 +148,11 @@ def load_config() -> CollectionConfig:
     )
 
     config = CollectionConfig(
-        environment=os.getenv("ENVIRONMENT", "development"),
-        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        environment=os.getenv("COLLECTION_ENVIRONMENT", "development"),
+        log_level=os.getenv("COLLECTION_LOG_LEVEL", "INFO"),
         storage_service_url=os.getenv("STORAGE_SERVICE_URL"),
         pubsub=pubsub_config,
-        data_sources=[],  # Would load from config file
+        data_sources=[],  # Empty - no data sources without config file
     )
 
     return config
