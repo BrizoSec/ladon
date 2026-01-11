@@ -147,7 +147,7 @@ kubectl create namespace ladon-local
 # Create secrets with YOUR API keys
 kubectl create secret generic collection-secrets \
   --from-literal=ALIENVAULT_API_KEY='your_actual_alienvault_key_here' \
-  --from-literal=ABUSECH_AUTH_KEY='your_actual_abusech_key_here' \
+  --from-literal=ABUSECH_API_KEY='your_actual_abusech_key_here' \
   --from-literal=POSTGRES_PASSWORD='ladon123' \
   -n ladon-local
 

@@ -271,11 +271,11 @@ class AbuseCHCollector(BaseCollector):
             List of IOC dictionaries
         """
         session = await self._get_session()
-        payload = {"query": "get_recent"}
 
         try:
-            async with session.post(
-                self.config.urlhaus_url + "urls/recent/", json=payload
+            # URLhaus recent URLs endpoint uses GET (returns last 3 days)
+            async with session.get(
+                self.config.urlhaus_url + "urls/recent/"
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
@@ -288,16 +288,26 @@ class AbuseCHCollector(BaseCollector):
                 cutoff_date = datetime.utcnow() - timedelta(days=days)
 
                 for entry in data.get("urls", []):
-                    # Check if within time window
-                    date_added = datetime.fromisoformat(
-                        entry.get("date_added").replace("Z", "+00:00")
-                    )
-                    if date_added < cutoff_date:
-                        continue
+                    try:
+                        # Check if within time window
+                        # URLhaus returns dates like "2026-01-11 02:05:16 UTC"
+                        date_str = entry.get("date_added")
+                        if not date_str:
+                            continue
 
-                    ioc = self._parse_urlhaus_entry(entry)
-                    if ioc:
-                        iocs.append(ioc)
+                        if " UTC" in date_str:
+                            date_str = date_str.replace(" UTC", "")
+                        date_added = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+
+                        if date_added < cutoff_date:
+                            continue
+
+                        ioc = self._parse_urlhaus_entry(entry)
+                        if ioc:
+                            iocs.append(ioc)
+                    except (ValueError, AttributeError, TypeError) as e:
+                        logger.debug(f"Skipping URLhaus entry with invalid date: {e}")
+                        continue
 
                 return iocs
 
@@ -353,11 +363,16 @@ class AbuseCHCollector(BaseCollector):
             List of IOC dictionaries
         """
         session = await self._get_session()
-        payload = {"query": "get_recent"}
+
+        # MalwareBazaar requires form data, not JSON
+        # selector=100 gets the latest 100 additions
+        form_data = aiohttp.FormData()
+        form_data.add_field("query", "get_recent")
+        form_data.add_field("selector", "100")
 
         try:
             async with session.post(
-                self.config.malware_bazaar_url, json=payload
+                self.config.malware_bazaar_url, data=form_data
             ) as response:
                 response.raise_for_status()
                 data = await response.json()
@@ -370,15 +385,23 @@ class AbuseCHCollector(BaseCollector):
                 cutoff_date = datetime.utcnow() - timedelta(days=days)
 
                 for entry in data.get("data", []):
-                    # Check if within time window
-                    date_added = datetime.fromisoformat(
-                        entry.get("first_seen").replace("Z", "+00:00")
-                    )
-                    if date_added < cutoff_date:
-                        continue
+                    try:
+                        # Check if within time window
+                        # MalwareBazaar returns dates like "2026-01-11 02:05:16"
+                        date_str = entry.get("first_seen")
+                        if not date_str:
+                            continue
 
-                    ioc_list = self._parse_malware_bazaar_entry(entry)
-                    iocs.extend(ioc_list)
+                        date_added = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+
+                        if date_added < cutoff_date:
+                            continue
+
+                        ioc_list = self._parse_malware_bazaar_entry(entry)
+                        iocs.extend(ioc_list)
+                    except (ValueError, AttributeError, TypeError) as e:
+                        logger.debug(f"Skipping MalwareBazaar entry with invalid date: {e}")
+                        continue
 
                 return iocs
 

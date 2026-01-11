@@ -1,10 +1,5 @@
 # LADON Platform - Project Plan
 
-**Version:** 1.0  
-**Date:** January 1, 2026  
-**Project Owner:** Chase (VP, Goldman Sachs Technology Risk Division)  
-**Duration:** 18 months (MVP in 6 months)
-
 ---
 
 ## Executive Summary

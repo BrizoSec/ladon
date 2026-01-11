@@ -18,7 +18,7 @@ Usage:
     python scripts/test_abusech.py
 
     # Option 2: Export environment variable
-    export ABUSECH_AUTH_KEY="your_auth_key_here"
+    export ABUSECH_API_KEY="your_auth_key_here"
     python scripts/test_abusech.py
 
 To get a free Auth-Key:
@@ -292,17 +292,17 @@ class AbuseCHCollector:
 async def main():
     """Test abuse.ch collection."""
     # Get Auth-Key
-    auth_key = os.getenv("ABUSECH_AUTH_KEY")
+    auth_key = os.getenv("ABUSECH_API_KEY")
     if not auth_key:
-        print("❌ Error: ABUSECH_AUTH_KEY environment variable not set")
+        print("❌ Error: ABUSECH_API_KEY environment variable not set")
         print("\nTo get a free Auth-Key:")
         print("1. Go to https://auth.abuse.ch/")
         print("2. Sign up using X, LinkedIn, Google, or GitHub")
         print("3. Connect at least one additional authentication provider")
         print("4. Create an Auth-Key in the 'Optional' section")
-        print("5. Set environment variable: export ABUSECH_AUTH_KEY='your_key'")
+        print("5. Set environment variable: export ABUSECH_API_KEY='your_key'")
         print("\nOr add to .env file:")
-        print("   ABUSECH_AUTH_KEY=your_key_here")
+        print("   ABUSECH_API_KEY=your_key_here")
         return
 
     print("=" * 80)

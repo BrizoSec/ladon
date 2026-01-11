@@ -44,7 +44,11 @@ class AlienVaultOTXCollector(BaseCollector):
         Returns:
             aiohttp ClientSession
         """
-        if self.session is None:
+        if self.session is None or self.session.closed:
+            # Close old session if it exists
+            if self.session and not self.session.closed:
+                await self.session.close()
+
             headers = {
                 "X-OTX-API-KEY": self.config.api_key,
                 "Accept": "application/json",
