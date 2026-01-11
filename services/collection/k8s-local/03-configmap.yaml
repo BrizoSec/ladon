@@ -1,0 +1,41 @@
+---
+# ConfigMap for Collection Service (local configuration)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collection-config
+  namespace: ladon-local
+data:
+  # Service Configuration
+  COLLECTION_ENVIRONMENT: "development"  # Uses mock Pub/Sub and storage
+  COLLECTION_LOG_LEVEL: "INFO"
+  COLLECTION_MAX_CONCURRENT_COLLECTORS: "5"
+
+  # Storage Type (PostgreSQL instead of Firestore)
+  STORAGE_TYPE: "postgresql"
+  POSTGRES_HOST: "postgres.ladon-local.svc.cluster.local"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "ladon"
+  POSTGRES_USER: "ladon"
+
+  # Messaging Type (None for local - direct writes)
+  MESSAGING_TYPE: "local"  # No Kafka/Pub/Sub for simplicity
+
+  # Redis
+  REDIS_HOST: "redis.ladon-local.svc.cluster.local"
+  REDIS_PORT: "6379"
+
+  # AlienVault OTX
+  ALIENVAULT_API_ENDPOINT: "https://otx.alienvault.com/api/v1"
+  ALIENVAULT_COLLECTION_INTERVAL_MINUTES: "30"
+  ALIENVAULT_PULSES_LIMIT: "10"  # Small for testing
+
+  # abuse.ch
+  ABUSECH_THREATFOX_URL: "https://threatfox-api.abuse.ch/api/v1/"
+  ABUSECH_URLHAUS_URL: "https://urlhaus-api.abuse.ch/v1/"
+  ABUSECH_MALWARE_BAZAAR_URL: "https://mb-api.abuse.ch/api/v1/"
+  ABUSECH_COLLECTION_INTERVAL_MINUTES: "30"
+
+  # Monitoring
+  PROMETHEUS_ENABLED: "true"
+  PROMETHEUS_PORT: "9090"

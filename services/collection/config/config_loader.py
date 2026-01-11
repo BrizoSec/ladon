@@ -7,13 +7,19 @@ various sources with proper precedence.
 """
 
 import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import yaml
 from pydantic import ValidationError
 
-from ..src.config import (
+# Add src directory to path for absolute imports
+src_dir = Path(__file__).parent.parent / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
+from config import (
     AbuseCHConfig,
     AlienVaultOTXConfig,
     BigQuerySourceConfig,

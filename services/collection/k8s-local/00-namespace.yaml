@@ -1,0 +1,9 @@
+---
+# Namespace for local LADON deployment
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ladon-local
+  labels:
+    environment: local
+    app: ladon
